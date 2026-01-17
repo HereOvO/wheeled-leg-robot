@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "cmsis_os.h"  // 添加FreeRTOS头文件以使用互斥锁
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -115,6 +116,9 @@ static ComprehensivePose_t comprehensive_pose = {0};  /*!< 综合姿态信息（
 static int8_t motor_cmd_direction[4] = {0};  /*!< 上位机发来的电机转向命令 */
 static float motor_cmd_speed[4] = {0.0f};   /*!< 上位机发来的电机转速命令 */
 static uint8_t motor_cmd_type[4] = {0};     /*!< 上位机发来的电机命令类型 (0=慢刹车, 1=快刹车, 2=反转, 3=正转) */
+
+// 电机命令数组的互斥锁，用于保护中断和任务之间的数据访问
+static osMutexId_t motor_cmd_mutex = NULL;
 
 /* USER CODE END PV */
 
@@ -367,11 +371,18 @@ HAL_StatusTypeDef ParseMotorControlMessage(uint8_t *buffer, uint8_t length)
             return HAL_ERROR;
     }
 
-    // 存储上位机发来的电机控制命令
+    // 存储上位机发来的电机控制命令（使用原子操作保护）
     if(motor_id < 4) {
+        // 在中断中禁用中断以保护数据一致性
+        uint32_t primask = __get_PRIMASK();
+        __disable_irq();
+
         motor_cmd_direction[motor_id] = direction;
         motor_cmd_speed[motor_id] = speed_rpm;
         motor_cmd_type[motor_id] = command;  // 存储原始命令类型
+
+        // 恢复中断状态
+        __set_PRIMASK(primask);
     }
 
     // 这里可以添加对电机的控制逻辑（目前只更新内部状态）
@@ -514,20 +525,41 @@ void UpdateSingleMotorData(uint8_t motor_id, int8_t direction, float speed_rpm)
 void GetMotorCommand(uint8_t motor_id, int8_t *direction, float *speed_rpm)
 {
     if(motor_id < 4 && direction != NULL && speed_rpm != NULL) {
+        // 获取互斥锁
+        if (motor_cmd_mutex != NULL) {
+            osMutexAcquire(motor_cmd_mutex, osWaitForever);
+        }
+
         *direction = motor_cmd_direction[motor_id];
         *speed_rpm = motor_cmd_speed[motor_id];
+
+        // 释放互斥锁
+        if (motor_cmd_mutex != NULL) {
+            osMutexRelease(motor_cmd_mutex);
+        }
     }
 }
 
 // 获取上位机发来的电机命令类型
 uint8_t GetMotorCommandType(uint8_t motor_id)
 {
-    if(motor_id >= 4) {
-        return 0; // 默认返回慢刹车
+    uint8_t result = 0; // 默认返回慢刹车
+
+    if(motor_id < 4) {
+        // 获取互斥锁
+        if (motor_cmd_mutex != NULL) {
+            osMutexAcquire(motor_cmd_mutex, osWaitForever);
+        }
+
+        result = motor_cmd_type[motor_id];
+
+        // 释放互斥锁
+        if (motor_cmd_mutex != NULL) {
+            osMutexRelease(motor_cmd_mutex);
+        }
     }
 
-    // 直接返回存储的命令类型
-    return motor_cmd_type[motor_id];
+    return result;
 }
 
 /* USER CODE END 4 */
@@ -541,6 +573,17 @@ HAL_StatusTypeDef JetsonUart_Init(void)
     // 初始化接收缓冲区
     uart5_rx_index = 0;
     uart5_frame_complete = 0;
+
+    // 创建电机命令数组的互斥锁
+    if (motor_cmd_mutex == NULL) {
+        const osMutexAttr_t mutex_attr = {
+            .name = "MotorCmdMutex"
+        };
+        motor_cmd_mutex = osMutexNew(&mutex_attr);
+        if (motor_cmd_mutex == NULL) {
+            return HAL_ERROR;  // 互斥锁创建失败
+        }
+    }
 
     return HAL_OK;
 }

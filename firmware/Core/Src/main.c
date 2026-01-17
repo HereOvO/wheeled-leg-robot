@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
+#include <math.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -53,7 +54,10 @@ I2C_HandleTypeDef hi2c2;
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim5;
 TIM_HandleTypeDef htim8;
+TIM_HandleTypeDef htim9;
+TIM_HandleTypeDef htim12;
 
 UART_HandleTypeDef huart4;
 UART_HandleTypeDef huart5;
@@ -183,6 +187,9 @@ Motor_Status_t motor4_n20 = { 4,0,0,0,0,0 };
 
 // 全局电机状态数组
 Motor_Status_t all_motors[4] = {0};
+
+// 用于电机PWM控制的变量
+uint8_t motor_pwm_tim_map[4] = {0, 1, 0, 2}; // 内部电机0,2使用TIM5, 内部电机1使用TIM9, 内部电机3使用TIM12
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -197,6 +204,9 @@ static void MX_USART1_UART_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM8_Init(void);
+static void MX_TIM5_Init(void);
+static void MX_TIM9_Init(void);
+static void MX_TIM12_Init(void);
 void GPIO_Task(void *argument);
 void UART_Task(void *argument);
 void Imu_Task(void *argument);
@@ -207,11 +217,156 @@ void UART_Task1(void *argument);
 void MotorCtrl_TasK(void *argument);
 
 /* USER CODE BEGIN PFP */
+// 设置指定电机的PWM参数
+void SetMotorPWM(uint8_t motor_id, float rpm);
 
+// 停止指定电机的PWM输出
+void StopMotorPWM(uint8_t motor_id);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+// 设置指定电机的PWM参数
+void SetMotorPWM(uint8_t motor_id, float rpm)
+{
+    if (motor_id >= 4) return;  // 无效的电机ID
+
+    uint32_t pulse;
+    uint32_t max_pulse;
+    float adjusted_rpm = fabsf(rpm);
+
+    // 根据不同定时器的ARR值调整公式系数，使最大RPM对应接近ARR的脉冲宽度
+    // 所有定时器现在都使用相同的ARR值13999，以便使用统一的公式
+    max_pulse = 13999;  // 所有定时器的ARR值
+
+    // 使用新的公式：当RPM达到最大值时，脉冲宽度接近ARR值
+    // 假设最大RPM为380，则系数为 13999 / 380 = 36.84
+    pulse = (uint32_t)(adjusted_rpm * 36.84f);
+
+    // 限制脉冲宽度不超过ARR值
+    if (pulse > max_pulse) pulse = max_pulse;
+
+    switch(motor_id)
+    {
+        case 0:  // 内部电机0 (物理电机1) - 使用TIM5的通道1(正转)和通道2(反转)
+            // 停止当前所有通道输出
+            __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_1, 0);
+            __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_2, 0);
+
+            if (rpm >= 0) {
+                // 正转：通道1输出PWM（占空比与速度成正比），通道2保持低电平（占空比为0%）
+                __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_1, pulse);
+                __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_2, 0);
+            } else {
+                // 反转：通道1保持低电平（占空比为0%），通道2输出PWM（占空比与速度成正比）
+                __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_1, 0);
+                __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_2, pulse);
+            }
+
+            // 启动PWM输出
+            HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_1);
+            HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_2);
+            break;
+
+        case 1:  // 内部电机1 (物理电机2) - 使用TIM9的通道1(正转)和通道2(反转)
+            // 停止当前所有通道输出
+            __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_1, 0);
+            __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_2, 0);
+
+            if (rpm >= 0) {
+                // 正转：通道1输出PWM（占空比与速度成正比），通道2保持低电平（占空比为0%）
+                __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_1, pulse);
+                __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_2, 0);
+            } else {
+                // 反转：通道1保持低电平（占空比为0%），通道2输出PWM（占空比与速度成正比）
+                __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_1, 0);
+                __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_2, pulse);
+            }
+
+            // 启动PWM输出
+            HAL_TIM_PWM_Start(&htim9, TIM_CHANNEL_1);
+            HAL_TIM_PWM_Start(&htim9, TIM_CHANNEL_2);
+            break;
+
+        case 2:  // 内部电机2 (物理电机3) - 使用TIM5的通道3(正转)和通道4(反转)
+            // 停止当前所有通道输出
+            __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_3, 0);
+            __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_4, 0);
+
+            if (rpm >= 0) {
+                // 正转：通道3输出PWM（占空比与速度成正比），通道4保持低电平（占空比为0%）
+                __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_3, pulse);
+                __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_4, 0);
+            } else {
+                // 反转：通道3保持低电平（占空比为0%），通道4输出PWM（占空比与速度成正比）
+                __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_3, 0);
+                __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_4, pulse);
+            }
+
+            // 启动PWM输出
+            HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3);
+            HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_4);
+            break;
+
+        case 3:  // 内部电机3 (物理电机4) - 使用TIM12的通道1(正转)和通道2(反转)
+            // 停止当前所有通道输出
+            __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_1, 0);
+            __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0);
+
+            if (rpm >= 0) {
+                // 正转：通道1输出PWM（占空比与速度成正比），通道2保持低电平（占空比为0%）
+                __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_1, pulse);
+                __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0);
+            } else {
+                // 反转：通道1保持低电平（占空比为0%），通道2输出PWM（占空比与速度成正比）
+                __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_1, 0);
+                __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, pulse);
+            }
+
+            // 启动PWM输出
+            HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_1);
+            HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_2);
+            break;
+    }
+}
+
+// 停止指定电机的PWM输出
+void StopMotorPWM(uint8_t motor_id)
+{
+    if (motor_id >= 4) return;  // 无效的电机ID
+
+    switch(motor_id)
+    {
+        case 0:  // 内部电机0 (物理电机1) - 使用TIM5的通道1和2
+            __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_1, 0);
+            __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_2, 0);
+            HAL_TIM_PWM_Stop(&htim5, TIM_CHANNEL_1);
+            HAL_TIM_PWM_Stop(&htim5, TIM_CHANNEL_2);
+            break;
+
+        case 1:  // 内部电机1 (物理电机2) - 使用TIM9的通道1和2
+            __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_1, 0);
+            __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_2, 0);
+            HAL_TIM_PWM_Stop(&htim9, TIM_CHANNEL_1);
+            HAL_TIM_PWM_Stop(&htim9, TIM_CHANNEL_2);
+            break;
+
+        case 2:  // 内部电机2 (物理电机3) - 使用TIM5的通道3和4
+            __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_3, 0);
+            __HAL_TIM_SET_COMPARE(&htim5, TIM_CHANNEL_4, 0);
+            HAL_TIM_PWM_Stop(&htim5, TIM_CHANNEL_3);
+            HAL_TIM_PWM_Stop(&htim5, TIM_CHANNEL_4);
+            break;
+
+        case 3:  // 内部电机3 (物理电机4) - 使用TIM12的通道1和2
+            __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_1, 0);
+            __HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, 0);
+            HAL_TIM_PWM_Stop(&htim12, TIM_CHANNEL_1);
+            HAL_TIM_PWM_Stop(&htim12, TIM_CHANNEL_2);
+            break;
+    }
+}
 
 /* USER CODE END 0 */
 
@@ -253,6 +408,9 @@ int main(void)
   MX_TIM1_Init();
   MX_TIM2_Init();
   MX_TIM8_Init();
+  MX_TIM5_Init();
+  MX_TIM9_Init();
+  MX_TIM12_Init();
   /* USER CODE BEGIN 2 */
   MX_GPIO_Init();
   MX_UART4_Init();
@@ -624,6 +782,67 @@ static void MX_TIM3_Init(void)
 }
 
 /**
+  * @brief TIM5 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM5_Init(void)
+{
+
+  /* USER CODE BEGIN TIM5_Init 0 */
+
+  /* USER CODE END TIM5_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM5_Init 1 */
+
+  /* USER CODE END TIM5_Init 1 */
+  htim5.Instance = TIM5;
+  htim5.Init.Prescaler = 3;
+  htim5.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim5.Init.Period = 13999;  // 改为14000，对应约1.5kHz PWM频率 (84MHz/(3+1)/14000 = 1.5kHz)
+  htim5.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim5.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim5) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim5, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim5, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim5, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim5, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim5, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM5_Init 2 */
+
+  /* USER CODE END TIM5_Init 2 */
+  HAL_TIM_MspPostInit(&htim5);
+
+}
+
+/**
   * @brief TIM8 Initialization Function
   * @param None
   * @retval None
@@ -670,6 +889,98 @@ static void MX_TIM8_Init(void)
   /* USER CODE BEGIN TIM8_Init 2 */
 
   /* USER CODE END TIM8_Init 2 */
+
+}
+
+/**
+  * @brief TIM9 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM9_Init(void)
+{
+
+  /* USER CODE BEGIN TIM9_Init 0 */
+
+  /* USER CODE END TIM9_Init 0 */
+
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM9_Init 1 */
+
+  /* USER CODE END TIM9_Init 1 */
+  htim9.Instance = TIM9;
+  htim9.Init.Prescaler = 7;
+  htim9.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim9.Init.Period = 13999;  // 改为14000，对应约1.5kHz PWM频率 (168MHz/(7+1)/14000 = 1.5kHz)
+  htim9.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim9.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim9) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim9, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim9, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM9_Init 2 */
+
+  /* USER CODE END TIM9_Init 2 */
+  HAL_TIM_MspPostInit(&htim9);
+
+}
+
+/**
+  * @brief TIM12 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM12_Init(void)
+{
+
+  /* USER CODE BEGIN TIM12_Init 0 */
+
+  /* USER CODE END TIM12_Init 0 */
+
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM12_Init 1 */
+
+  /* USER CODE END TIM12_Init 1 */
+  htim12.Instance = TIM12;
+  htim12.Init.Prescaler = 3;
+  htim12.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim12.Init.Period = 13999;  // 改为14000，对应约1.5kHz PWM频率 (84MHz/(3+1)/14000 = 1.5kHz)
+  htim12.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim12.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim12) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim12, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim12, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM12_Init 2 */
+
+  /* USER CODE END TIM12_Init 2 */
+  HAL_TIM_MspPostInit(&htim12);
 
 }
 
@@ -787,22 +1098,15 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(DebugIO_GPIO_Port, DebugIO_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO3_1_Pin|MotorDirectionControl_IO2_1_Pin|MotorDirectionControl_IO2_2_Pin|MotorDirectionControl_IO1_1_Pin
-                          |MotorDirectionControl_IO1_2_Pin|MotorDirectionControl_IO4_1_Pin|MotorDirectionControl_IO4_2_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(MotorDirectionControl_IO3_2_GPIO_Port, MotorDirectionControl_IO3_2_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin : DebugIO_Pin */
   GPIO_InitStruct.Pin = DebugIO_Pin;
@@ -810,15 +1114,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(DebugIO_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : MotorDirectionControl_IO3_1_Pin MotorDirectionControl_IO3_2_Pin MotorDirectionControl_IO2_1_Pin MotorDirectionControl_IO2_2_Pin
-                           MotorDirectionControl_IO1_1_Pin MotorDirectionControl_IO1_2_Pin MotorDirectionControl_IO4_1_Pin MotorDirectionControl_IO4_2_Pin */
-  GPIO_InitStruct.Pin = MotorDirectionControl_IO3_1_Pin|MotorDirectionControl_IO3_2_Pin|MotorDirectionControl_IO2_1_Pin|MotorDirectionControl_IO2_2_Pin
-                          |MotorDirectionControl_IO1_1_Pin|MotorDirectionControl_IO1_2_Pin|MotorDirectionControl_IO4_1_Pin|MotorDirectionControl_IO4_2_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -1233,142 +1528,94 @@ void MotorCtrl_TasK(void *argument)
   /* USER CODE BEGIN MotorCtrl_TasK */
   /* Infinite loop */
 	uint8_t motor_id=*(uint8_t*)argument;
+  int8_t direction;
+  float speed_rpm;
+
   for(;;)
   {
     // 获取上位机发来的电机命令
     uint8_t motor_cmd = GetMotorCommandType(motor_id);  // 获取对应编号电机的命令类型
+    GetMotorCommand(motor_id, &direction, &speed_rpm);  // 获取方向和速度
 
+    switch(motor_cmd) {
+      case 0:  // 慢刹车 - 两个端口保持低电平
+        StopMotorPWM(motor_id);
+        // 设置GPIO状态为低电平
+        switch(motor_id) {
+          case 0:  //内部电机0 (物理电机1)
+            HAL_GPIO_WritePin(MotorDirectionControl_IO1_1_GPIO_Port, MotorDirectionControl_IO1_1_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(MotorDirectionControl_IO1_2_GPIO_Port, MotorDirectionControl_IO1_2_Pin, GPIO_PIN_RESET);
+            break;
+          case 1:  //内部电机1 (物理电机2)
+            HAL_GPIO_WritePin(MotorDirectionControl_IO2_1_GPIO_Port, MotorDirectionControl_IO2_1_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(MotorDirectionControl_IO2_2_GPIO_Port, MotorDirectionControl_IO2_2_Pin, GPIO_PIN_RESET);
+            break;
+          case 2:  //内部电机2 (物理电机3)
+            HAL_GPIO_WritePin(MotorDirectionControl_IO3_1_GPIO_Port, MotorDirectionControl_IO3_1_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(MotorDirectionControl_IO3_2_GPIO_Port, MotorDirectionControl_IO3_2_Pin, GPIO_PIN_RESET);
+            break;
+          case 3:  //内部电机3 (物理电机4)
+            HAL_GPIO_WritePin(MotorDirectionControl_IO4_1_GPIO_Port, MotorDirectionControl_IO4_1_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(MotorDirectionControl_IO4_2_GPIO_Port, MotorDirectionControl_IO4_2_Pin, GPIO_PIN_RESET);
+            break;
+        }
+        break;
 
-    switch(motor_id) {
-      case 0:  //电机1
-			{
-				switch(motor_cmd)
-				{
-					case 0:  // 快刹车
-					HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO1_1_Pin, GPIO_PIN_RESET); 
-					HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO1_2_Pin, GPIO_PIN_RESET);  
-					break;
+      case 1:  // 快刹车 - 两个端口保持高电平
+        StopMotorPWM(motor_id);
+        // 设置GPIO状态为高电平
+        switch(motor_id) {
+          case 0:  //内部电机0 (物理电机1)
+            HAL_GPIO_WritePin(MotorDirectionControl_IO1_1_GPIO_Port, MotorDirectionControl_IO1_1_Pin, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(MotorDirectionControl_IO1_2_GPIO_Port, MotorDirectionControl_IO1_2_Pin, GPIO_PIN_SET);
+            break;
+          case 1:  //内部电机1 (物理电机2)
+            HAL_GPIO_WritePin(MotorDirectionControl_IO2_1_GPIO_Port, MotorDirectionControl_IO2_1_Pin, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(MotorDirectionControl_IO2_2_GPIO_Port, MotorDirectionControl_IO2_2_Pin, GPIO_PIN_SET);
+            break;
+          case 2:  //内部电机2 (物理电机3)
+            HAL_GPIO_WritePin(MotorDirectionControl_IO3_1_GPIO_Port, MotorDirectionControl_IO3_1_Pin, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(MotorDirectionControl_IO3_2_GPIO_Port, MotorDirectionControl_IO3_2_Pin, GPIO_PIN_SET);
+            break;
+          case 3:  //内部电机3 (物理电机4)
+            HAL_GPIO_WritePin(MotorDirectionControl_IO4_1_GPIO_Port, MotorDirectionControl_IO4_1_Pin, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(MotorDirectionControl_IO4_2_GPIO_Port, MotorDirectionControl_IO4_2_Pin, GPIO_PIN_SET);
+            break;
+        }
+        break;
 
-					case 1:  // 快刹车 - PD8和PD9都输出高电平
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO1_1_Pin, GPIO_PIN_SET);    
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO1_2_Pin, GPIO_PIN_SET);    
-						break;
+      case 2:  // 反转 - 速度为负值
+        // 电机x 反转 速度-a 的命令对应x的第2个端口输出对应pulse的PWM波,第1个端口保持低电平
+        SetMotorPWM(motor_id, -speed_rpm);  // 使用负速度值表示反转
+        break;
 
-					case 2:  // 反转 - PD8低电平，PD9高电平
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO1_1_Pin, GPIO_PIN_RESET);  
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO1_2_Pin, GPIO_PIN_SET);    
-						break;
+      case 3:  // 正转 - 速度为正值
+        // 电机x 正转 速度a 的命令对应x的第1个端口输出对应pulse的PWM波,第2个端口保持低电平
+        SetMotorPWM(motor_id, speed_rpm);  // 使用正速度值表示正转
+        break;
 
-					case 3:  // 正转 - PD8高电平，PD9低电平
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO1_1_Pin, GPIO_PIN_SET);    
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO1_2_Pin, GPIO_PIN_RESET); 
-						break;
-
-					default:  // 默认情况，停止电机
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO1_1_Pin, GPIO_PIN_RESET);  
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO1_2_Pin, GPIO_PIN_RESET);  
-						break;
-				
-				}
-				break;
-			}
-      case 1:   //电机2
-			{
-				switch(motor_cmd)
-				{
-					case 0:  // 快刹车
-					HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO2_1_Pin, GPIO_PIN_RESET);  
-					HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO2_2_Pin, GPIO_PIN_RESET); 
-					break;
-
-					case 1:  // 快刹车 
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO2_1_Pin, GPIO_PIN_SET);   
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO2_2_Pin, GPIO_PIN_SET);   
-						break;
-
-					case 2:  // 反转 
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO2_1_Pin, GPIO_PIN_RESET);  //
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO2_2_Pin, GPIO_PIN_SET);    //
-						break;
-
-					case 3:  // 正转 
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO2_1_Pin, GPIO_PIN_SET);    // 
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO2_2_Pin, GPIO_PIN_RESET);  // 
-						break;
-
-					default:  // 默认情况，停止电机
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO2_1_Pin, GPIO_PIN_RESET);  //
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO2_2_Pin, GPIO_PIN_RESET);  // 
-						break;
-				
-				}
-				break;
-			}
-      case 2:   //电机3
-			{
-				switch(motor_cmd)
-				{
-					case 0:  // 快刹车 - PD8和PD9都输出高电平
-					HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO3_1_Pin, GPIO_PIN_RESET);  //
-					HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO3_2_Pin, GPIO_PIN_RESET);  // 
-					break;
-
-					case 1:  // 快刹车 - PD8和PD9都输出高电平
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO3_1_Pin, GPIO_PIN_SET);    // 
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO3_2_Pin, GPIO_PIN_SET);    // 
-						break;
-
-					case 2:  // 反转 - PD8低电平，PD9高电平
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO3_1_Pin, GPIO_PIN_RESET);  // 
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO3_2_Pin, GPIO_PIN_SET);    // 
-						break;
-
-					case 3:  // 正转 - PD8高电平，PD9低电平
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO3_1_Pin, GPIO_PIN_SET);    // 
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO3_2_Pin, GPIO_PIN_RESET);  //
-						break;
-
-					default:  // 默认情况，停止电机
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO3_1_Pin, GPIO_PIN_RESET);  //
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO3_2_Pin, GPIO_PIN_RESET);  // 
-						break;
-				
-				}
-				break;
-			}
-      case 3:   //电机4
-			{
-				switch(motor_cmd)
-				{
-					case 0:  // 快刹车 
-					HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO4_1_Pin, GPIO_PIN_RESET);  //
-					HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO4_2_Pin, GPIO_PIN_RESET);  //
-					break;
-
-					case 1:  // 快刹车 - PD8和PD9都输出高电平
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO4_1_Pin, GPIO_PIN_SET);    // 
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO4_2_Pin, GPIO_PIN_SET);    // 
-						break;
-
-					case 2:  // 反转 - PD8低电平，PD9高电平
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO4_1_Pin, GPIO_PIN_RESET);  // 
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO4_2_Pin, GPIO_PIN_SET);    // 
-						break;
-
-					case 3:  // 正转 - PD8高电平，PD9低电平
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO4_1_Pin, GPIO_PIN_SET);    // 
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO4_2_Pin, GPIO_PIN_RESET);  // 
-						break;
-
-					default:  // 默认情况，停止电机
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO4_1_Pin, GPIO_PIN_RESET);  // 
-						HAL_GPIO_WritePin(GPIOD, MotorDirectionControl_IO4_2_Pin, GPIO_PIN_RESET);  //
-						break;
-				
-				}
-				break;
-			}
-
+      default:  // 默认情况，停止电机
+        StopMotorPWM(motor_id);
+        // 设置GPIO状态为低电平
+        switch(motor_id) {
+          case 0:  //内部电机0 (物理电机1)
+            HAL_GPIO_WritePin(MotorDirectionControl_IO1_1_GPIO_Port, MotorDirectionControl_IO1_1_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(MotorDirectionControl_IO1_2_GPIO_Port, MotorDirectionControl_IO1_2_Pin, GPIO_PIN_RESET);
+            break;
+          case 1:  //内部电机1 (物理电机2)
+            HAL_GPIO_WritePin(MotorDirectionControl_IO2_1_GPIO_Port, MotorDirectionControl_IO2_1_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(MotorDirectionControl_IO2_2_GPIO_Port, MotorDirectionControl_IO2_2_Pin, GPIO_PIN_RESET);
+            break;
+          case 2:  //内部电机2 (物理电机3)
+            HAL_GPIO_WritePin(MotorDirectionControl_IO3_1_GPIO_Port, MotorDirectionControl_IO3_1_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(MotorDirectionControl_IO3_2_GPIO_Port, MotorDirectionControl_IO3_2_Pin, GPIO_PIN_RESET);
+            break;
+          case 3:  //内部电机3 (物理电机4)
+            HAL_GPIO_WritePin(MotorDirectionControl_IO4_1_GPIO_Port, MotorDirectionControl_IO4_1_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(MotorDirectionControl_IO4_2_GPIO_Port, MotorDirectionControl_IO4_2_Pin, GPIO_PIN_RESET);
+            break;
+        }
+        break;
     }
 
     osDelay(10);  // 10ms检查一次命令状态
