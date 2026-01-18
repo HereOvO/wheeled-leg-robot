@@ -37,6 +37,10 @@
 "gpio_test_f4\cmsis_os2.o"
 "gpio_test_f4\heap_4.o"
 "gpio_test_f4\port.o"
+"gpio_test_f4\segger_rtt.o"
+"gpio_test_f4\segger_sysview.o"
+"gpio_test_f4\segger_sysview_config_freertos.o"
+"gpio_test_f4\segger_sysview_freertos.o"
 --strict --scatter "GPIO_Test_F4\GPIO_Test_F4.sct"
 --summary_stderr --info summarysizes --map --xref --callgraph --symbols
 --info sizes --info totals --info unused --info veneers

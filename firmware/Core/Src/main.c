@@ -30,6 +30,7 @@
 #include "FreeRTOS.h"
 #include "queue.h"
 #include <string.h>
+#include "SEGGER_SYSVIEW.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -415,6 +416,7 @@ int main(void)
   MX_GPIO_Init();
   MX_UART4_Init();
 
+	SEGGER_SYSVIEW_Conf();
   // 系统启动信息输出
   char start_msg[] = "System Started Successfully!\r\n";
   HAL_UART_Transmit(&huart4, (uint8_t*)start_msg, strlen(start_msg), 0xFFFF);

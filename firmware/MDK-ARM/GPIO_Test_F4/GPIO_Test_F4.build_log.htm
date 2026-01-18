@@ -17,36 +17,44 @@ Library Manager: ArmAr.exe V5.06 update 5 (build 528)
 Hex Converter:   FromElf.exe V5.06 update 5 (build 528)
 CPU DLL:         SARMCM3.DLL V5.24.1
 Dialog DLL:      DCM.DLL V1.16.0.0
-Target DLL:      STLink\ST-LINKIII-KEIL_SWO.dll V3.0.1.0
+Target DLL:      Segger\JL2CM3.dll V2.99.26.0
 Dialog DLL:      TCM.DLL V1.32.0.0
  
 <h2>Project:</h2>
-D:\code_D\stm32_code_MX\F4\����\wheeled-leg-stm32controller\MDK-ARM\GPIO_Test_F4.uvprojx
-Project File Date:  01/13/2026
+D:\code_D\stm32_code_MX\gitcode\wheeled-leg-robot\firmware\MDK-ARM\GPIO_Test_F4.uvprojx
+Project File Date:  01/18/2026
 
 <h2>Output:</h2>
 *** Using Compiler 'V5.06 update 5 (build 528)', folder: 'D:\keil5\ARM\ARMCC\Bin'
 Build target 'GPIO_Test_F4'
-compiling jetson_uart.c...
+compiling main.c...
+../Core/Inc/pca9685.h(25): warning:  #1-D: last line of file ends without a newline
+  #endif
 ../Core/Inc/jetson_uart.h(151): warning:  #1-D: last line of file ends without a newline
   #endif /* __JETSON_UART_H */
-..\Core\Src\jetson_uart.c(765): warning:  #1-D: last line of file ends without a newline
-  /* USER CODE END 1 */
-..\Core\Src\jetson_uart.c(102): warning:  #550-D: variable "uart5_frame_complete"  was set but never used
-  static uint8_t uart5_frame_complete = 0; /*!< 帧完成标�? */
-..\Core\Src\jetson_uart.c(103): warning:  #177-D: variable "uart5_rx_data"  was declared but never referenced
-  static uint8_t uart5_rx_data;           /*!< UART5接收数据 */
-..\Core\Src\jetson_uart.c(105): warning:  #177-D: variable "received_msg"  was declared but never referenced
-  static JetsonMessage_t received_msg;     /*!< 用于接收消息的临时缓冲区 */
-..\Core\Src\jetson_uart.c(110): warning:  #550-D: variable "current_pose"  was set but never used
-  static MultiServoPose_t current_pose = {0};     /*!< 当前舵机姿�? */
-..\Core\Src\jetson_uart.c(111): warning:  #550-D: variable "last_pose_update"  was set but never used
-  static uint32_t last_pose_update = 0;           /*!< 上次姿态更新时�? */
-..\Core\Src\jetson_uart.c: 7 warnings, 0 errors
+../Core/Src/main.c(1167): warning:  #177-D: variable "uart_send_buf"  was declared but never referenced
+    char uart_send_buf[50];
+../Core/Src/main.c(1501): warning:  #177-D: variable "errorMsg"  was declared but never referenced
+                          char errorMsg[] = "UART1 transmit error\r\n";
+../Core/Src/main.c: 4 warnings, 0 errors
+compiling croutine.c...
+compiling event_groups.c...
+compiling list.c...
+compiling queue.c...
+compiling stream_buffer.c...
+compiling tasks.c...
+compiling timers.c...
+compiling cmsis_os2.c...
+compiling heap_4.c...
+compiling port.c...
+compiling SEGGER_RTT.c...
+compiling SEGGER_SYSVIEW.c...
+compiling SEGGER_SYSVIEW_Config_FreeRTOS.c...
+compiling SEGGER_SYSVIEW_FreeRTOS.c...
 linking...
-Program Size: Code=37932 RO-data=1920 RW-data=328 ZI-data=40000  
+Program Size: Code=41760 RO-data=2068 RW-data=348 ZI-data=42660  
 FromELF: creating hex file...
-"GPIO_Test_F4\GPIO_Test_F4.axf" - 0 Error(s), 7 Warning(s).
+"GPIO_Test_F4\GPIO_Test_F4.axf" - 0 Error(s), 4 Warning(s).
 
 <h2>Software Packages used:</h2>
 
@@ -57,7 +65,7 @@ Package Vendor: ARM
    * Component: CORE Version: 5.0.1
 
 <h2>Collection of Component include folders:</h2>
-  D:\code_D\stm32_code_MX\F4\����\wheeled-leg-stm32controller\MDK-ARM\RTE
+  D:\code_D\stm32_code_MX\gitcode\wheeled-leg-robot\firmware\MDK-ARM\RTE
   D:\keil5\ARM\PACK\ARM\CMSIS\5.0.1\CMSIS\Include
 
 <h2>Collection of Component Files used:</h2>
