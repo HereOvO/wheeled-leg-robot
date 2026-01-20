@@ -35,6 +35,8 @@
 /*extern PV*/
 extern Motor_Status_t all_motors[4];
 
+//Mutex句柄
+extern osMutexId_t MotorStatusMutexHandle;
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
@@ -119,15 +121,13 @@ static uint32_t last_pose_update = 0;           /*!< 上次姿态更新时间 */
 static ComprehensivePose_t comprehensive_pose = {0};  /*!< 综合姿态信息（舵机+IMU+电机） */
 
 // 存储上位机发来的电机控制命令
-static int8_t motor_cmd_direction[4] = {0};  /*!< 上位机发来的电机转向命令 */
-static float motor_cmd_speed[4] = {0.0f};   /*!< 上位机发来的电机转速命令 */
+int8_t motor_cmd_direction[4] = {0};  /*!< 上位机发来的电机转向命令 */
+float motor_cmd_speed[4] = {0.0f};   /*!< 上位机发来的电机转速命令 */
 static uint8_t motor_cmd_type[4] = {0};     /*!< 上位机发来的电机命令类型 (0=慢刹车, 1=快刹车, 2=反转, 3=正转) */
 
-// 电机命令数组的互斥锁，用于保护中断和任务之间的数据访问
-static osMutexId_t motor_cmd_mutex = NULL;
 
-// 电机数据互斥锁，用于保护电机数据读写的一致性
-static osMutexId_t motor_data_mutex = NULL;
+
+
 
 /* USER CODE END PV */
 
@@ -178,7 +178,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         if(HAL_UART_Receive_IT(&huart5, &uart_rx_byte, 1) != HAL_OK) {
             // 如果重新启动接收失败，可以发送错误信息
             char error_msg[] = "UART5 Re-start receive error\r\n";
-            HAL_UART_Transmit(&huart4, (uint8_t*)error_msg, strlen(error_msg), 0xFFFF);
+            HAL_UART_Transmit(&huart4, (uint8_t*)error_msg, strlen(error_msg), 0);
         }
     }
 }
@@ -298,6 +298,7 @@ HAL_StatusTypeDef ParseServoControlMessage(uint8_t *buffer, uint8_t length)
     return HAL_OK;
 }
 
+
 /**
  * @brief 解析电机控制消息
  * @param buffer 消息缓冲区
@@ -411,10 +412,8 @@ HAL_StatusTypeDef ParseMotorControlMessage(uint8_t *buffer, uint8_t length)
  */
 HAL_StatusTypeDef SendCurrentPose(void)
 {
-    // 获取互斥锁以确保数据一致性
-    if (motor_data_mutex != NULL) {
-        osMutexAcquire(motor_data_mutex, osWaitForever);
-    }
+    // 进入临界区
+    taskENTER_CRITICAL() ;
 
     char pose_msg[512]; // 增大缓冲区以容纳更多数据
     sprintf(pose_msg, "POSE,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%lu,%f,%f,%f,%f,%f,%f,%f,%d,%d,%d,%d,%.2f,%.2f,%.2f,%.2f\n",
@@ -435,10 +434,8 @@ HAL_StatusTypeDef SendCurrentPose(void)
             comprehensive_pose.motor_data.speed_rpm[0], comprehensive_pose.motor_data.speed_rpm[1],
             comprehensive_pose.motor_data.speed_rpm[2], comprehensive_pose.motor_data.speed_rpm[3]);
 
-    // 释放互斥锁
-    if (motor_data_mutex != NULL) {
-        osMutexRelease(motor_data_mutex);
-    }
+    //出临界区
+     taskEXIT_CRITICAL();
 
     return HAL_UART_Transmit(&huart5, (uint8_t*)pose_msg, strlen(pose_msg), 0xFFFF);
 }
@@ -454,10 +451,8 @@ uint8_t CheckPoseChanged(void)
     static ComprehensivePose_t last_pose = {0};
     uint8_t changed = 0;
 
-    // 获取互斥锁以确保数据一致性
-    if (motor_data_mutex != NULL) {
-        osMutexAcquire(motor_data_mutex, osWaitForever);
-    }
+    // 进入临界区
+    taskENTER_CRITICAL() ;
 
     // 检查舵机角度是否发生变化
     for(int i = 0; i < 16; i++) {
@@ -478,10 +473,8 @@ uint8_t CheckPoseChanged(void)
         }
     }
 
-    // 释放互斥锁
-    if (motor_data_mutex != NULL) {
-        osMutexRelease(motor_data_mutex);
-    }
+    //出临界区
+     taskEXIT_CRITICAL();
 
     // 如果舵机角度或电机数据没变，检查IMU数据是否发生变化（可选）
     if(!changed) {
@@ -557,30 +550,16 @@ void UpdateMotorData(int8_t dir1, int8_t dir2, int8_t dir3, int8_t dir4,
     comprehensive_pose.motor_data.timestamp = HAL_GetTick();
     comprehensive_pose.timestamp = HAL_GetTick(); // 更新整体时间戳
 
-    // 释放互斥锁
-    if (motor_data_mutex != NULL) {
-        osMutexRelease(motor_data_mutex);
-    }
+    //出临界区
+     taskEXIT_CRITICAL();
+    
 }
 
-// 初始化电机数据互斥锁
-void InitMotorDataMutex(void)
-{
-    if (motor_data_mutex == NULL) {
-        const osMutexAttr_t mutex_attr = {
-            .name = "MotorDataMutex"
-        };
-        motor_data_mutex = osMutexNew(&mutex_attr);
-    }
-}
+
 
 // 更新电机数据（使用带符号速度）
 void UpdateMotorDataWithSignedSpeed(float signed_rpm1, float signed_rpm2, float signed_rpm3, float signed_rpm4)
 {
-    // 获取互斥锁
-    if (motor_data_mutex != NULL) {
-        osMutexAcquire(motor_data_mutex, osWaitForever);
-    }
 
     // 处理第一个电机
     int8_t dir1 = 0;
@@ -641,6 +620,8 @@ void UpdateMotorDataWithSignedSpeed(float signed_rpm1, float signed_rpm2, float 
     }
 
     // 一次性更新所有电机数据
+    //进入临界区
+    taskENTER_CRITICAL();
     comprehensive_pose.motor_data.direction[0] = dir1;
     comprehensive_pose.motor_data.direction[1] = dir2;
     comprehensive_pose.motor_data.direction[2] = dir3;
@@ -654,20 +635,16 @@ void UpdateMotorDataWithSignedSpeed(float signed_rpm1, float signed_rpm2, float 
     comprehensive_pose.motor_data.timestamp = HAL_GetTick();
     comprehensive_pose.timestamp = HAL_GetTick(); // 更新整体时间戳
 
-    // 释放互斥锁
-    if (motor_data_mutex != NULL) {
-        osMutexRelease(motor_data_mutex);
-    }
+    // 出临界区
+    taskEXIT_CRITICAL() ;
+
 }
 
 // 更新单个电机数据
 void UpdateSingleMotorData(uint8_t motor_id, int8_t direction, float speed_rpm)
 {
-    // 获取互斥锁
-    if (motor_data_mutex != NULL) {
-        osMutexAcquire(motor_data_mutex, osWaitForever);
-    }
-
+    // 进入临界区
+    taskENTER_CRITICAL();
     if(motor_id < 4) {
         comprehensive_pose.motor_data.direction[motor_id] = direction;
         comprehensive_pose.motor_data.speed_rpm[motor_id] = speed_rpm;
@@ -676,19 +653,14 @@ void UpdateSingleMotorData(uint8_t motor_id, int8_t direction, float speed_rpm)
         comprehensive_pose.timestamp = HAL_GetTick(); // 更新整体时间戳
     }
 
-    // 释放互斥锁
-    if (motor_data_mutex != NULL) {
-        osMutexRelease(motor_data_mutex);
-    }
+    // 出临界区
+    taskEXIT_CRITICAL() ;
 }
 
 // 更新单个电机数据（使用带符号速度）
 void UpdateSingleMotorDataWithSignedSpeed(uint8_t motor_id, float signed_speed_rpm)
 {
-    // 获取互斥锁
-    if (motor_data_mutex != NULL) {
-        osMutexAcquire(motor_data_mutex, osWaitForever);
-    }
+
 
     if(motor_id < 4) {
         int8_t direction = 0;
@@ -703,62 +675,37 @@ void UpdateSingleMotorDataWithSignedSpeed(uint8_t motor_id, float signed_speed_r
             direction = 0;      // 停止
             abs_speed = 0.0f;
         }
-
+        // 进入临界区
+        taskENTER_CRITICAL();
+        
         comprehensive_pose.motor_data.direction[motor_id] = direction;
         comprehensive_pose.motor_data.speed_rpm[motor_id] = abs_speed;
 
         comprehensive_pose.motor_data.timestamp = HAL_GetTick();
         comprehensive_pose.timestamp = HAL_GetTick(); // 更新整体时间戳
+        
+        // 出临界区
+        taskEXIT_CRITICAL();
     }
 
-    // 释放互斥锁
-    if (motor_data_mutex != NULL) {
-        osMutexRelease(motor_data_mutex);
-    }
+
+    
 }
 
 // 获取上位机发来的电机控制命令
 void GetMotorCommand(uint8_t motor_id, int8_t *direction, float *speed_rpm)
 {
     if(motor_id < 4 && direction != NULL && speed_rpm != NULL) {
-        // 获取互斥锁
-        if (motor_cmd_mutex != NULL) {
-            osMutexAcquire(motor_cmd_mutex, osWaitForever);
-        }
+        // 进入临界区
+        taskENTER_CRITICAL() ;
 
         *direction = motor_cmd_direction[motor_id];
         *speed_rpm = motor_cmd_speed[motor_id];
 
-        // 释放互斥锁
-        if (motor_cmd_mutex != NULL) {
-            osMutexRelease(motor_cmd_mutex);
-        }
+        //出临界区
+         taskEXIT_CRITICAL();
     }
 }
-
-// 获取上位机发来的电机命令类型
-int8_t GetMotorCommandType(uint8_t motor_id)
-{
-    int8_t result = 0; // 默认返回停止
-
-    if(motor_id < 4) {
-        // 获取互斥锁
-        if (motor_cmd_mutex != NULL) {
-            osMutexAcquire(motor_cmd_mutex, osWaitForever);
-        }
-
-        result = (int8_t)motor_cmd_type[motor_id];
-
-        // 释放互斥锁
-        if (motor_cmd_mutex != NULL) {
-            osMutexRelease(motor_cmd_mutex);
-        }
-    }
-
-    return result;
-}
-
-/* USER CODE END 4 */
 
 /**
   * @brief  Initialize UART communication with Jetson
@@ -770,22 +717,31 @@ HAL_StatusTypeDef JetsonUart_Init(void)
     uart5_rx_index = 0;
     uart5_frame_complete = 0;
 
-    // 创建电机命令数组的互斥锁
-    if (motor_cmd_mutex == NULL) {
-        const osMutexAttr_t mutex_attr = {
-            .name = "MotorCmdMutex"
-        };
-        motor_cmd_mutex = osMutexNew(&mutex_attr);
-        if (motor_cmd_mutex == NULL) {
-            return HAL_ERROR;  // 互斥锁创建失败
-        }
-    }
-
-    // 初始化电机数据互斥锁
-    InitMotorDataMutex();
-
     return HAL_OK;
 }
+
+// 获取上位机发来的电机命令类型
+int8_t GetMotorCommandType(uint8_t motor_id)
+{
+    int8_t result = 0; // 默认返回停止
+
+    if(motor_id < 4) {
+        // 进入临界区
+        taskENTER_CRITICAL() ;
+
+        result = (int8_t)motor_cmd_type[motor_id];
+
+        //出临界区
+         taskEXIT_CRITICAL(); }
+    
+
+    return result;
+}
+
+/* USER CODE END 4 */
+
+
+
 
 /**
   * @brief  Send heartbeat message to Jetson
@@ -1001,7 +957,10 @@ void Jetson_Task(void *argument)
     // 更新所有电机数据到综合姿态信息
     extern void UpdateMotorData(int8_t dir1, int8_t dir2, int8_t dir3, int8_t dir4,
                                float rpm1, float rpm2, float rpm3, float rpm4);
+   
+
     // 使用带符号速度更新电机数据
+    osMutexAcquire(MotorStatusMutexHandle,portMAX_DELAY);
     float signed_speed_0 = all_motors[0].speed_rpm;
     float signed_speed_1 = all_motors[1].speed_rpm;
     float signed_speed_2 = all_motors[2].speed_rpm;
@@ -1011,7 +970,7 @@ void Jetson_Task(void *argument)
     if(all_motors[1].direction == -1) signed_speed_1 = -signed_speed_1;
     if(all_motors[2].direction == -1) signed_speed_2 = -signed_speed_2;
     if(all_motors[3].direction == -1) signed_speed_3 = -signed_speed_3;
-
+    osMutexRelease(MotorStatusMutexHandle);
     UpdateMotorDataWithSignedSpeed(signed_speed_0, signed_speed_1, signed_speed_2, signed_speed_3);
 
     osDelay(10);

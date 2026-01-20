@@ -34,7 +34,11 @@ extern osMessageQueueId_t MotorQueueHandle;
 
 // 1. 电机参数 (根据你的图片)
 #define MOTOR_BASE_PPR        7     // 霍尔传感器基础脉冲数 (电机尾部转一圈的物理脉冲)
-#define MAX_MOTOR_PWM_PULSE  13999  // 电机控制的PWM最大值
+#define MAX_MOTOR_PWM_PULSE_5_12  13999  // 电机控制的PWM最大值
+#define MAX_MOTOR_PWM_PULSE_9  65535  // 电机控制的PWM最大值
+
+#define PID_Control_Frq  100  // PID的控制频率,注意不能超过实际freertos中PID控制函数的运行频率
+#define MOTOR_DEAD_ZONE_PULSE 150  //死区pulse
 // 2. 减速比 (!!非常重要!!)
 // N20电机通常都有减速箱，比如 1:30, 1:50, 1:100。
 // 图片中并没有写具体减速比，你需要查看你的订单或者数一下：

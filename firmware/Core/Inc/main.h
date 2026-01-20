@@ -93,7 +93,7 @@ void Error_Handler(void);
 #define MotorEncoderSignal_2C1_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
-
+#define ISPrintIniteData 0  //ʹ��UART4��ʱ���Ƿ��ӡ��ʼ����Ϣ
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

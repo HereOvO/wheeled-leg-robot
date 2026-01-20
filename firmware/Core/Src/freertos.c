@@ -28,8 +28,8 @@
 #include "Motor.h"
 #include "main.h"
 #include "FreeRTOS.h"
-#include "task.h"  //定义了TickType_t
-#include "queue.h"  //定义了TickType_t
+#include "task.h"  
+#include "queue.h"  
 #include "main.h"
 #include "cmsis_os.h"
 #include "jetson_uart.h"
@@ -62,6 +62,11 @@ extern uint8_t Motor_0;
 extern uint8_t Motor_1;
 extern uint8_t Motor_2;
 extern uint8_t Motor_3;
+
+//针对不同的定时器进行输出限幅
+//uint16_t ulMaxPulse_TIM5_12=MAX_MOTOR_PWM_PULSE_5_12;
+//uint16_t ulMaxPulse_TIM9=MAX_MOTOR_PWM_PULSE_9;
+
 /* USER CODE END Variables */
 /* Definitions for gpiotask */
 osThreadId_t gpiotaskHandle;
@@ -154,10 +159,27 @@ const osThreadAttr_t MotorCtrlTasK4_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
+/* Definitions for Motor_PID_Task */
+osThreadId_t Motor_PID_TaskHandle;
+const osThreadAttr_t Motor_PID_Task_attributes = {
+  .name = "Motor_PID_Task",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 /* Definitions for UART1Mutex01 */
 osMutexId_t UART1Mutex01Handle;
 const osMutexAttr_t UART1Mutex01_attributes = {
   .name = "UART1Mutex01"
+};
+/* Definitions for MotorPIDOutPulseMutex */
+osMutexId_t MotorPIDOutPulseMutexHandle;
+const osMutexAttr_t MotorPIDOutPulseMutex_attributes = {
+  .name = "MotorPIDOutPulseMutex"
+};
+/* Definitions for MotorStatusMutex */
+osMutexId_t MotorStatusMutexHandle;
+const osMutexAttr_t MotorStatusMutex_attributes = {
+  .name = "MotorStatusMutex"
 };
 
 /* Private function prototypes -----------------------------------------------*/
@@ -172,6 +194,7 @@ extern void PCA9685_Task(void *argument);
 extern void Jetson_Task(void *argument);
 extern void MotorSpeedTask(void *argument);
 extern void MotorCtrl_TasK(void *argument);
+extern void Motor_PID_TaskFunc(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -187,6 +210,12 @@ void MX_FREERTOS_Init(void) {
   /* Create the mutex(es) */
   /* creation of UART1Mutex01 */
   UART1Mutex01Handle = osMutexNew(&UART1Mutex01_attributes);
+
+  /* creation of MotorPIDOutPulseMutex */
+  MotorPIDOutPulseMutexHandle = osMutexNew(&MotorPIDOutPulseMutex_attributes);
+
+  /* creation of MotorStatusMutex */
+  MotorStatusMutexHandle = osMutexNew(&MotorStatusMutex_attributes);
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
@@ -206,13 +235,13 @@ void MX_FREERTOS_Init(void) {
 
   /* Create the thread(s) */
   /* creation of gpiotask */
-  //gpiotaskHandle = osThreadNew(GPIO_Task, NULL, &gpiotask_attributes);
+  gpiotaskHandle = osThreadNew(GPIO_Task, NULL, &gpiotask_attributes);
 
   /* creation of uart_task */
   uart_taskHandle = osThreadNew(UART_Task, NULL, &uart_task_attributes);
 
   /* creation of imu_task */
- // imu_taskHandle = osThreadNew(Imu_Task, NULL, &imu_task_attributes);
+  imu_taskHandle = osThreadNew(Imu_Task, NULL, &imu_task_attributes);
 
   /* creation of pca9685task */
   pca9685taskHandle = osThreadNew(PCA9685_Task, NULL, &pca9685task_attributes);
@@ -243,6 +272,9 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of MotorCtrlTasK4 */
   MotorCtrlTasK4Handle = osThreadNew(MotorCtrl_TasK, (void*) &Motor_3, &MotorCtrlTasK4_attributes);
+
+  /* creation of Motor_PID_Task */
+  Motor_PID_TaskHandle = osThreadNew(Motor_PID_TaskFunc, NULL, &Motor_PID_Task_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */

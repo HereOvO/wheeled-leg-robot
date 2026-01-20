@@ -33,7 +33,8 @@
 #include "FreeRTOS.h"
 #include "queue.h"
 #include <string.h>
-#include "SEGGER_SYSVIEW.h"
+//#include "SEGGER_SYSVIEW.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,7 +44,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define ISPrintIniteData 0
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -110,14 +111,18 @@ int main(void)
   MX_TIM9_Init();
   MX_TIM12_Init();
   /* USER CODE BEGIN 2 */
-	SEGGER_SYSVIEW_Conf();
-
+	//SEGGER_SYSVIEW_Conf();
+    HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);  // Æô¶¯TIM1±àÂëÆ÷
+    HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);  // Æô¶¯TIM2±àÂëÆ÷
+    HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);  // Æô¶¯TIM3±àÂëÆ÷
+    HAL_TIM_Encoder_Start(&htim8, TIM_CHANNEL_ALL);  // Æô¶¯TIM8±àÂëÆ÷
   /* USER CODE END 2 */
 
   /* Init scheduler */
   osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
   MX_FREERTOS_Init();
 
+   
   /* Start scheduler */
   osKernelStart();
 
