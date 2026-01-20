@@ -201,4 +201,56 @@ void PCA9685_ServoControlSmooth(I2C_HandleTypeDef *hi2c, uint8_t num, uint8_t st
         off_time = (uint32_t)(110 + start_angle * 2.27f);
         PCA9685_SetPWM(hi2c, num, 0, off_time);
     }
+
+}
+
+/*任务函数*/
+void PCA9685_Task(void *argument)
+{
+  /* USER CODE BEGIN PCA9685_Task */
+  char servo_send_buf[100];
+  HAL_StatusTypeDef status;
+
+  // 等待系统稳定
+  osDelay(1000);
+
+  // 初始化PCA9685，设置PWM频率为50Hz（舵机标准频率）
+  status = HAL_I2C_IsDeviceReady(&hi2c2, PCA9685_ADDR, 5, 100);
+  if(status == HAL_OK)
+  {
+      PCA9685_Init(&hi2c2, 50.0f);  // 50Hz for servo control
+
+      // 发送初始化成功信息
+      sprintf(servo_send_buf, "PCA9685 Initialization Success!\r\n");
+      HAL_UART_Transmit(&huart4, (uint8_t*)servo_send_buf, strlen(servo_send_buf), 0xFFFF);
+  }
+  else
+  {
+      // 发送初始化失败信息
+      sprintf(servo_send_buf, "PCA9685 Device Not Found!\r\n");
+      HAL_UART_Transmit(&huart4, (uint8_t*)servo_send_buf, strlen(servo_send_buf), 0xFFFF);
+  }
+
+  /* Infinite loop */
+  for(;;)
+  {
+      // 现在舵机控制由UART接收消息驱动，这里只负责检查设备状态
+      if(status != HAL_OK)
+      {
+          // 如果设备未找到，尝试重新初始化
+          status = HAL_I2C_IsDeviceReady(&hi2c2, PCA9685_ADDR, 5, 100);
+          if(status == HAL_OK)
+          {
+              PCA9685_Init(&hi2c2, 50.0f);  // 50Hz for servo control
+
+              // 发送重新初始化成功信息
+              sprintf(servo_send_buf, "PCA9685 Re-initialization Success!\r\n");
+              HAL_UART_Transmit(&huart4, (uint8_t*)servo_send_buf, strlen(servo_send_buf), 0xFFFF);
+          }
+      }
+
+      // 延迟较长时间，因为主要控制逻辑在UART接收部分
+      osDelay(1000);
+  }
+  /* USER CODE END PCA9685_Task */
 }

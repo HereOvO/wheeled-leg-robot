@@ -79,12 +79,11 @@
   - `duration`: 执行时间 (毫秒)
 
 ### 电机控制协议
-- **命令格式**: `MOTOR,<motor_id>,<command>,<speed_rpm>\n`
-- **示例**: `MOTOR,0,3,50.5\n` - 控制0号电机正转，转速50.5 RPM
+- **命令格式**: `MOTOR,<motor_id>,<signed_speed_rpm>\n`
+- **示例**: `MOTOR,0,50.5\n` - 控制0号电机正转，转速50.5 RPM
 - **参数说明**:
   - `motor_id`: 电机ID (0-3)
-  - `command`: 控制命令 (0=慢刹车, 1=快刹车, 2=反转, 3=正转)
-  - `speed_rpm`: 目标转速 (RPM)
+  - `signed_speed_rpm`: 带符号的目标转速 (正值=正转, 负值=反转, 0=停止/刹车)
 
 ### 姿态回传协议
 - **命令格式**: `POSE,<servo0>,<servo1>,...,<servo15>,<timestamp>,<accel_x>,<accel_y>,<accel_z>,<gyro_x>,<gyro_y>,<gyro_z>,<temperature>,<dir1>,<dir2>,<dir3>,<dir4>,<rpm1>,<rpm2>,<rpm3>,<rpm4>\n`

@@ -27,8 +27,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <motor.h>
 #include "cmsis_os.h"  // 添加FreeRTOS头文件以使用互斥锁
+#include <stm32f4xx_hal_gpio.h>
 /* USER CODE END Includes */
+
+/*extern PV*/
+extern Motor_Status_t all_motors[4];
+
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
@@ -120,10 +126,16 @@ static uint8_t motor_cmd_type[4] = {0};     /*!< 上位机发来的电机命令�
 // 电机命令数组的互斥锁，用于保护中断和任务之间的数据访问
 static osMutexId_t motor_cmd_mutex = NULL;
 
+// 电机数据互斥锁，用于保护电机数据读写的一致性
+static osMutexId_t motor_data_mutex = NULL;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN PFP */
+
+
+/* USER CODE END PFP */
 
 // 解析舵机控制消息
 HAL_StatusTypeDef ParseServoControlMessage(uint8_t *buffer, uint8_t length);
@@ -135,6 +147,7 @@ HAL_StatusTypeDef SendCurrentPose(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
 
 // 串口接收单字节缓冲区
 static uint8_t uart_rx_byte;
@@ -291,9 +304,11 @@ HAL_StatusTypeDef ParseServoControlMessage(uint8_t *buffer, uint8_t length)
  * @param length 消息长度
  * @return HAL_StatusTypeDef HAL_OK 成功，HAL_ERROR 失败
  *
- * 消息格式: "MOTOR,<motor_id>,<command>,<speed_rpm>\n"
- * command: 0=慢刹车, 1=快刹车, 2=反转, 3=正转
- * 例如: "MOTOR,0,3,50.5\n" - 控制0号电机正转，转速50.5 RPM
+ * 消息格式: "MOTOR,<motor_id>,<signed_speed_rpm>\n"
+ * signed_speed_rpm: 正值=正转, 负值=反转, 0=停止
+ * 例如: "MOTOR,0,50.5\n" - 控制0号电机正转，转速50.5 RPM
+ *       "MOTOR,0,-30.0\n" - 控制0号电机反转，转速30.0 RPM
+ *       "MOTOR,0,0.0\n" - 控制0号电机停止
  */
 HAL_StatusTypeDef ParseMotorControlMessage(uint8_t *buffer, uint8_t length)
 {
@@ -331,44 +346,31 @@ HAL_StatusTypeDef ParseMotorControlMessage(uint8_t *buffer, uint8_t length)
     }
     uint8_t motor_id = atoi(token);
 
-    // 解析命令
+    // 解析带符号的转速
     token = strtok(NULL, ",");
     if(token == NULL) {
         return HAL_ERROR;
     }
-    uint8_t command = (uint8_t)atoi(token);
-
-    // 解析转速
-    token = strtok(NULL, ",");
-    if(token == NULL) {
-        return HAL_ERROR;
-    }
-    float speed_rpm = atof(token);
+    float signed_speed_rpm = atof(token);
 
     // 限制范围
-    if(motor_id >= 4 || command > 3) {
+    if(motor_id >= 4) {
         return HAL_ERROR;
     }
 
-    // 将命令转换为内部表示
-    int8_t direction = 0;  // 默认停止
-    switch(command) {
-        case 0:  // 慢刹车
-            direction = 0;  // 停止，但可能需要特殊的慢刹车逻辑
-            speed_rpm = 0.0f;
-            break;
-        case 1:  // 快刹车
-            direction = 0;  // 停止，但可能需要特殊的快刹车逻辑
-            speed_rpm = 0.0f;
-            break;
-        case 2:  // 反转
-            direction = -1;
-            break;
-        case 3:  // 正转
-            direction = 1;
-            break;
-        default:
-            return HAL_ERROR;
+    // 根据速度值确定方向和绝对速度
+    int8_t direction = 0;
+    float speed_rpm = 0.0f;
+
+    if(signed_speed_rpm > 0.0f) {
+        direction = 1;      // 正转
+        speed_rpm = signed_speed_rpm;
+    } else if(signed_speed_rpm < 0.0f) {
+        direction = -1;     // 反转
+        speed_rpm = -signed_speed_rpm;  // 取绝对值
+    } else {
+        direction = 0;      // 停止
+        speed_rpm = 0.0f;
     }
 
     // 存储上位机发来的电机控制命令（使用原子操作保护）
@@ -379,7 +381,16 @@ HAL_StatusTypeDef ParseMotorControlMessage(uint8_t *buffer, uint8_t length)
 
         motor_cmd_direction[motor_id] = direction;
         motor_cmd_speed[motor_id] = speed_rpm;
-        motor_cmd_type[motor_id] = command;  // 存储原始命令类型
+        // 将方向转换为命令类型（-1=反转，0=停止，1=正转）
+        int8_t command_type = 0;  // 默认停止
+        if(direction == 1) {
+            command_type = 1;  // 正转
+        } else if(direction == -1) {
+            command_type = -1;  // 反转
+        } else {  // direction == 0 (停止/刹车)
+            command_type = 0;  // 停止
+        }
+        motor_cmd_type[motor_id] = (uint8_t)command_type;
 
         // 恢复中断状态
         __set_PRIMASK(primask);
@@ -400,6 +411,11 @@ HAL_StatusTypeDef ParseMotorControlMessage(uint8_t *buffer, uint8_t length)
  */
 HAL_StatusTypeDef SendCurrentPose(void)
 {
+    // 获取互斥锁以确保数据一致性
+    if (motor_data_mutex != NULL) {
+        osMutexAcquire(motor_data_mutex, osWaitForever);
+    }
+
     char pose_msg[512]; // 增大缓冲区以容纳更多数据
     sprintf(pose_msg, "POSE,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%lu,%f,%f,%f,%f,%f,%f,%f,%d,%d,%d,%d,%.2f,%.2f,%.2f,%.2f\n",
             comprehensive_pose.servo_pose.angles[0], comprehensive_pose.servo_pose.angles[1],
@@ -419,6 +435,11 @@ HAL_StatusTypeDef SendCurrentPose(void)
             comprehensive_pose.motor_data.speed_rpm[0], comprehensive_pose.motor_data.speed_rpm[1],
             comprehensive_pose.motor_data.speed_rpm[2], comprehensive_pose.motor_data.speed_rpm[3]);
 
+    // 释放互斥锁
+    if (motor_data_mutex != NULL) {
+        osMutexRelease(motor_data_mutex);
+    }
+
     return HAL_UART_Transmit(&huart5, (uint8_t*)pose_msg, strlen(pose_msg), 0xFFFF);
 }
 
@@ -433,6 +454,11 @@ uint8_t CheckPoseChanged(void)
     static ComprehensivePose_t last_pose = {0};
     uint8_t changed = 0;
 
+    // 获取互斥锁以确保数据一致性
+    if (motor_data_mutex != NULL) {
+        osMutexAcquire(motor_data_mutex, osWaitForever);
+    }
+
     // 检查舵机角度是否发生变化
     for(int i = 0; i < 16; i++) {
         if(comprehensive_pose.servo_pose.angles[i] != last_pose.servo_pose.angles[i]) {
@@ -441,10 +467,26 @@ uint8_t CheckPoseChanged(void)
         }
     }
 
-    // 如果舵机角度没变，检查IMU数据是否发生变化（可选）
+    // 如果舵机角度没变，检查电机数据是否发生变化
+    if(!changed) {
+        for(int i = 0; i < 4; i++) {
+            if(comprehensive_pose.motor_data.direction[i] != last_pose.motor_data.direction[i] ||
+               comprehensive_pose.motor_data.speed_rpm[i] != last_pose.motor_data.speed_rpm[i]) {
+                changed = 1;
+                break;
+            }
+        }
+    }
+
+    // 释放互斥锁
+    if (motor_data_mutex != NULL) {
+        osMutexRelease(motor_data_mutex);
+    }
+
+    // 如果舵机角度或电机数据没变，检查IMU数据是否发生变化（可选）
     if(!changed) {
         // 可以根据需要决定是否检查IMU数据变化
-        // 这里暂时只检查舵机角度变化
+        // 这里暂时只检查舵机角度和电机数据变化
     }
 
     if(changed) {
@@ -453,6 +495,13 @@ uint8_t CheckPoseChanged(void)
             last_pose.servo_pose.angles[i] = comprehensive_pose.servo_pose.angles[i];
         }
         last_pose.servo_pose.timestamp = comprehensive_pose.servo_pose.timestamp;
+
+        // 同时更新电机数据
+        for(int i = 0; i < 4; i++) {
+            last_pose.motor_data.direction[i] = comprehensive_pose.motor_data.direction[i];
+            last_pose.motor_data.speed_rpm[i] = comprehensive_pose.motor_data.speed_rpm[i];
+        }
+        last_pose.motor_data.timestamp = comprehensive_pose.motor_data.timestamp;
     }
 
     return changed;
@@ -490,7 +539,7 @@ void UpdateIMUData(float accel_x, float accel_y, float accel_z,
     comprehensive_pose.timestamp = HAL_GetTick();
 }
 
-// 更新电机数据
+// 更新电机数据（使用分离的方向和速度）
 void UpdateMotorData(int8_t dir1, int8_t dir2, int8_t dir3, int8_t dir4,
                      float rpm1, float rpm2, float rpm3, float rpm4)
 {
@@ -507,17 +556,164 @@ void UpdateMotorData(int8_t dir1, int8_t dir2, int8_t dir3, int8_t dir4,
 
     comprehensive_pose.motor_data.timestamp = HAL_GetTick();
     comprehensive_pose.timestamp = HAL_GetTick(); // 更新整体时间戳
+
+    // 释放互斥锁
+    if (motor_data_mutex != NULL) {
+        osMutexRelease(motor_data_mutex);
+    }
+}
+
+// 初始化电机数据互斥锁
+void InitMotorDataMutex(void)
+{
+    if (motor_data_mutex == NULL) {
+        const osMutexAttr_t mutex_attr = {
+            .name = "MotorDataMutex"
+        };
+        motor_data_mutex = osMutexNew(&mutex_attr);
+    }
+}
+
+// 更新电机数据（使用带符号速度）
+void UpdateMotorDataWithSignedSpeed(float signed_rpm1, float signed_rpm2, float signed_rpm3, float signed_rpm4)
+{
+    // 获取互斥锁
+    if (motor_data_mutex != NULL) {
+        osMutexAcquire(motor_data_mutex, osWaitForever);
+    }
+
+    // 处理第一个电机
+    int8_t dir1 = 0;
+    float rpm1 = 0.0f;
+    // 添加小的阈值来避免在0附近的抖动
+    const float DIRECTION_THRESHOLD = 0.1f;  // 方向判断阈值，可根据需要调整
+    if(signed_rpm1 > DIRECTION_THRESHOLD) {
+        dir1 = 1;
+        rpm1 = signed_rpm1;
+    } else if(signed_rpm1 < -DIRECTION_THRESHOLD) {
+        dir1 = -1;
+        rpm1 = -signed_rpm1;  // 取绝对值
+    } else {
+        dir1 = 0;  // 当速度接近0时，方向为0
+        rpm1 = 0.0f;
+    }
+
+    // 处理第二个电机
+    int8_t dir2 = 0;
+    float rpm2 = 0.0f;
+    if(signed_rpm2 > 0.0f) {
+        dir2 = 1;
+        rpm2 = signed_rpm2;
+    } else if(signed_rpm2 < 0.0f) {
+        dir2 = -1;
+        rpm2 = -signed_rpm2;  // 取绝对值
+    } else {
+        dir2 = 0;
+        rpm2 = 0.0f;
+    }
+
+    // 处理第三个电机
+    int8_t dir3 = 0;
+    float rpm3 = 0.0f;
+    if(signed_rpm3 > 0.0f) {
+        dir3 = 1;
+        rpm3 = signed_rpm3;
+    } else if(signed_rpm3 < 0.0f) {
+        dir3 = -1;
+        rpm3 = -signed_rpm3;  // 取绝对值
+    } else {
+        dir3 = 0;
+        rpm3 = 0.0f;
+    }
+
+    // 处理第四个电机
+    int8_t dir4 = 0;
+    float rpm4 = 0.0f;
+    if(signed_rpm4 > 0.0f) {
+        dir4 = 1;
+        rpm4 = signed_rpm4;
+    } else if(signed_rpm4 < 0.0f) {
+        dir4 = -1;
+        rpm4 = -signed_rpm4;  // 取绝对值
+    } else {
+        dir4 = 0;
+        rpm4 = 0.0f;
+    }
+
+    // 一次性更新所有电机数据
+    comprehensive_pose.motor_data.direction[0] = dir1;
+    comprehensive_pose.motor_data.direction[1] = dir2;
+    comprehensive_pose.motor_data.direction[2] = dir3;
+    comprehensive_pose.motor_data.direction[3] = dir4;
+
+    comprehensive_pose.motor_data.speed_rpm[0] = rpm1;
+    comprehensive_pose.motor_data.speed_rpm[1] = rpm2;
+    comprehensive_pose.motor_data.speed_rpm[2] = rpm3;
+    comprehensive_pose.motor_data.speed_rpm[3] = rpm4;
+
+    comprehensive_pose.motor_data.timestamp = HAL_GetTick();
+    comprehensive_pose.timestamp = HAL_GetTick(); // 更新整体时间戳
+
+    // 释放互斥锁
+    if (motor_data_mutex != NULL) {
+        osMutexRelease(motor_data_mutex);
+    }
 }
 
 // 更新单个电机数据
 void UpdateSingleMotorData(uint8_t motor_id, int8_t direction, float speed_rpm)
 {
+    // 获取互斥锁
+    if (motor_data_mutex != NULL) {
+        osMutexAcquire(motor_data_mutex, osWaitForever);
+    }
+
     if(motor_id < 4) {
         comprehensive_pose.motor_data.direction[motor_id] = direction;
         comprehensive_pose.motor_data.speed_rpm[motor_id] = speed_rpm;
 
         comprehensive_pose.motor_data.timestamp = HAL_GetTick();
         comprehensive_pose.timestamp = HAL_GetTick(); // 更新整体时间戳
+    }
+
+    // 释放互斥锁
+    if (motor_data_mutex != NULL) {
+        osMutexRelease(motor_data_mutex);
+    }
+}
+
+// 更新单个电机数据（使用带符号速度）
+void UpdateSingleMotorDataWithSignedSpeed(uint8_t motor_id, float signed_speed_rpm)
+{
+    // 获取互斥锁
+    if (motor_data_mutex != NULL) {
+        osMutexAcquire(motor_data_mutex, osWaitForever);
+    }
+
+    if(motor_id < 4) {
+        int8_t direction = 0;
+        float abs_speed = 0.0f;
+        if(signed_speed_rpm > 0.0f) {
+            direction = 1;      // 正转
+            abs_speed = signed_speed_rpm;
+        } else if(signed_speed_rpm < 0.0f) {
+            direction = -1;     // 反转
+            abs_speed = -signed_speed_rpm;  // 取绝对值
+        } else {
+            direction = 0;      // 停止
+            abs_speed = 0.0f;
+        }
+
+        comprehensive_pose.motor_data.direction[motor_id] = direction;
+        comprehensive_pose.motor_data.speed_rpm[motor_id] = abs_speed;
+
+        comprehensive_pose.motor_data.timestamp = HAL_GetTick();
+        comprehensive_pose.timestamp = HAL_GetTick(); // 更新整体时间戳
+    }
+
+    // 释放互斥锁
+    if (motor_data_mutex != NULL) {
+        osMutexRelease(motor_data_mutex);
     }
 }
 
@@ -541,9 +737,9 @@ void GetMotorCommand(uint8_t motor_id, int8_t *direction, float *speed_rpm)
 }
 
 // 获取上位机发来的电机命令类型
-uint8_t GetMotorCommandType(uint8_t motor_id)
+int8_t GetMotorCommandType(uint8_t motor_id)
 {
-    uint8_t result = 0; // 默认返回慢刹车
+    int8_t result = 0; // 默认返回停止
 
     if(motor_id < 4) {
         // 获取互斥锁
@@ -551,7 +747,7 @@ uint8_t GetMotorCommandType(uint8_t motor_id)
             osMutexAcquire(motor_cmd_mutex, osWaitForever);
         }
 
-        result = motor_cmd_type[motor_id];
+        result = (int8_t)motor_cmd_type[motor_id];
 
         // 释放互斥锁
         if (motor_cmd_mutex != NULL) {
@@ -584,6 +780,9 @@ HAL_StatusTypeDef JetsonUart_Init(void)
             return HAL_ERROR;  // 互斥锁创建失败
         }
     }
+
+    // 初始化电机数据互斥锁
+    InitMotorDataMutex();
 
     return HAL_OK;
 }
@@ -761,5 +960,80 @@ void Jetson_ResetRxState(void)
 }
 
 /* USER CODE BEGIN 1 */
+/*jetson_uart的任务函数*/
+void Jetson_Task(void *argument)
+{
+  /* USER CODE BEGIN Jetson_Task */
+  char debug_msg[100];
 
+  // 用于100Hz姿态回传的时间跟踪
+  uint32_t last_pose_transmit = 0;
+  const uint32_t POSE_TRANSMIT_INTERVAL = 10; // 10ms = 100Hz
+
+  // 初始化UART通信
+  JetsonUart_Init();
+
+  // 等待UART完全初始化
+  osDelay(100);
+
+  // 启动UART5中断接收
+  if(JetsonUart_StartReceiveIT() != HAL_OK) {
+      sprintf(debug_msg, "Failed to start UART5 IT receive\r\n");
+      HAL_UART_Transmit(&huart4, (uint8_t*)debug_msg, strlen(debug_msg), 0xFFFF);
+  } else {
+      sprintf(debug_msg, "UART5 IT receive started successfully\r\n");
+      HAL_UART_Transmit(&huart4, (uint8_t*)debug_msg, strlen(debug_msg), 0xFFFF);
+  }
+
+  // 等待系统稳定
+  osDelay(1000);
+
+  // 发送初始化完成消息
+  sprintf(debug_msg, "Jetson Comm Task Started at 100Hz\r\n");
+  HAL_UART_Transmit(&huart4, (uint8_t*)debug_msg, strlen(debug_msg), 0xFFFF);
+
+  /* Infinite loop */
+  for(;;)
+  {
+    // 100Hz通信速率，即每10ms执行一次循环
+    // 数据接收由中断处理，这里可以做其他事情
+
+    // 更新所有电机数据到综合姿态信息
+    extern void UpdateMotorData(int8_t dir1, int8_t dir2, int8_t dir3, int8_t dir4,
+                               float rpm1, float rpm2, float rpm3, float rpm4);
+    // 使用带符号速度更新电机数据
+    float signed_speed_0 = all_motors[0].speed_rpm;
+    float signed_speed_1 = all_motors[1].speed_rpm;
+    float signed_speed_2 = all_motors[2].speed_rpm;
+    float signed_speed_3 = all_motors[3].speed_rpm;
+
+    if(all_motors[0].direction == -1) signed_speed_0 = -signed_speed_0;
+    if(all_motors[1].direction == -1) signed_speed_1 = -signed_speed_1;
+    if(all_motors[2].direction == -1) signed_speed_2 = -signed_speed_2;
+    if(all_motors[3].direction == -1) signed_speed_3 = -signed_speed_3;
+
+    UpdateMotorDataWithSignedSpeed(signed_speed_0, signed_speed_1, signed_speed_2, signed_speed_3);
+
+    osDelay(10);
+
+    // 检查接收超时并处理
+    Jetson_CheckReceiveTimeout();
+    // 定期清理可能的陈旧数据
+    Jetson_ClearStaleData();
+
+    // 检查姿态是否发生变化，如果变化则发送
+    if(CheckPoseChanged()) {
+        // 发送当前姿态
+        SendCurrentPose();
+        last_pose_transmit = HAL_GetTick();
+    }
+    // 同时保持最小发送间隔，避免过于频繁发送
+    else if((HAL_GetTick() - last_pose_transmit) >= POSE_TRANSMIT_INTERVAL) {
+        // 即使没有变化，也定期发送以维持通信
+        SendCurrentPose();
+        last_pose_transmit = HAL_GetTick();
+    }
+  }
+  /* USER CODE END Jetson_Task */
+}
 /* USER CODE END 1 */

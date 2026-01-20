@@ -17,10 +17,32 @@
   */
 /* USER CODE END Header */
 
-/* Includes ------------------------------------------------------------------*/
+
+//=================include===========================
+#include "Motor.h"
+#include "main.h"
+#include "FreeRTOS.h"
+#include "task.h"  //定义了TickType_t
+#include "queue.h"  //定义了TickType_t
+#include "main.h"
+#include "cmsis_os.h"
+#include "math.h"
+#include "uart.h"
 #include "bsp_mpu6050.h"
-#include <string.h>
-#include <stdio.h>
+//=================extern PV===========================
+extern TIM_HandleTypeDef htim1;
+extern TIM_HandleTypeDef htim2;
+extern TIM_HandleTypeDef htim3;
+extern TIM_HandleTypeDef htim5;
+extern TIM_HandleTypeDef htim8;
+extern TIM_HandleTypeDef htim9;
+extern TIM_HandleTypeDef htim12;
+extern UART_HandleTypeDef huart4;
+extern UART_HandleTypeDef huart5;
+extern UART_HandleTypeDef huart1;
+
+extern I2C_HandleTypeDef hi2c1;
+extern I2C_HandleTypeDef hi2c2;
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -333,5 +355,64 @@ void UART_Send_Float_Custom(UART_HandleTypeDef *huart, float num, uint8_t decima
 }
 
 /* USER CODE BEGIN 1 */
+/*mpu6050任务函数*/
+void Imu_Task(void *argument)
+{
+  /* USER CODE BEGIN Imu_Task */
+  MPU6050_Data_t imu_data;
+  char imu_send_buf[100];
+  HAL_StatusTypeDef status;
 
+  // 等待系统稳定
+  osDelay(1000);
+
+  // 初始化MPU6050传感器
+  status = BSP_MPU6050_Init(&hi2c1);
+  if(status != HAL_OK)
+  {
+      // 初始化失败，发送错误信息
+      sprintf(imu_send_buf, "MPU6050 Initialization Failed!\r\n");
+      HAL_UART_Transmit(&huart4, (uint8_t*)imu_send_buf, strlen(imu_send_buf), 0xFFFF);
+  }
+  else
+  {
+      // 初始化成功，发送确认信息
+      sprintf(imu_send_buf, "MPU6050 Initialization Success!\r\n");
+      HAL_UART_Transmit(&huart4, (uint8_t*)imu_send_buf, strlen(imu_send_buf), 0xFFFF);
+  }
+
+  /* Infinite loop */
+  for(;;)
+  {
+    // 读取MPU6050传感器数据
+    status = BSP_MPU6050_Read_Data(&hi2c1, &imu_data);
+
+    if(status == HAL_OK)
+    {
+        // 格式化并发送IMU数据
+        sprintf(imu_send_buf,
+                "IMU: Accel[X:%.2fg,Y:%.2fg,Z:%.2fg] Gyro[X:%.2fdps,Y:%.2fdps,Z:%.2fdps] Temp:%.2fc\r\n",
+                imu_data.accel_x_g, imu_data.accel_y_g, imu_data.accel_z_g,
+                imu_data.gyro_x_dps, imu_data.gyro_y_dps, imu_data.gyro_z_dps,
+                imu_data.temperature_c);
+
+        // 更新IMU数据到综合姿态信息
+        extern void UpdateIMUData(float accel_x, float accel_y, float accel_z,
+                                  float gyro_x, float gyro_y, float gyro_z,
+                                  float temperature);
+        UpdateIMUData(imu_data.accel_x_g, imu_data.accel_y_g, imu_data.accel_z_g,
+                      imu_data.gyro_x_dps, imu_data.gyro_y_dps, imu_data.gyro_z_dps,
+                      imu_data.temperature_c);
+    }
+    else
+    {
+        sprintf(imu_send_buf, "MPU6050 Read Error!\r\n");
+        HAL_UART_Transmit(&huart4, (uint8_t*)imu_send_buf, strlen(imu_send_buf), 0xFFFF);
+    }
+
+    // 每隔100ms读取一次数据 (10Hz)
+    osDelay(100);
+  }
+  /* USER CODE END Imu_Task */
+}
 /* USER CODE END 1 */

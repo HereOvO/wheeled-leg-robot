@@ -124,18 +124,27 @@ void UpdateIMUData(float accel_x, float accel_y, float accel_z,
                    float gyro_x, float gyro_y, float gyro_z,
                    float temperature);
 
+// 初始化电机数据互斥锁
+void InitMotorDataMutex(void);
+
 // 更新电机数据
 void UpdateMotorData(int8_t dir1, int8_t dir2, int8_t dir3, int8_t dir4,
                      float rpm1, float rpm2, float rpm3, float rpm4);
 
+// 更新电机数据（使用带符号速度）
+void UpdateMotorDataWithSignedSpeed(float signed_rpm1, float signed_rpm2, float signed_rpm3, float signed_rpm4);
+
 // 更新单个电机数据
 void UpdateSingleMotorData(uint8_t motor_id, int8_t direction, float speed_rpm);
+
+// 更新单个电机数据（使用带符号速度）
+void UpdateSingleMotorDataWithSignedSpeed(uint8_t motor_id, float signed_speed_rpm);
 
 // 获取上位机发来的电机控制命令
 void GetMotorCommand(uint8_t motor_id, int8_t *direction, float *speed_rpm);
 
 // 获取上位机发来的电机命令类型
-uint8_t GetMotorCommandType(uint8_t motor_id);
+int8_t GetMotorCommandType(uint8_t motor_id);
 
 /* USER CODE END EFP */
 

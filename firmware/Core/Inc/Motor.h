@@ -1,51 +1,104 @@
 #ifndef __MOTOR_CONFIG_H__
 #define __MOTOR_CONFIG_H__
 
-#include "main.h" // °üº¬ HAL ¿â¶¨Òå
+//=================include===========================
+#include "Motor.h"
+#include "main.h"
+#include "FreeRTOS.h"
+#include "task.h"  //å®šä¹‰äº†TickType_t
+#include "queue.h"  //å®šä¹‰äº†TickType_t
+#include "main.h"
+#include "cmsis_os.h"
+#include "jetson_uart.h"
+#include "math.h"
 
-// ================= ÓÃ»§º¯Êı =================
+//=================extern PV===========================
+extern TIM_HandleTypeDef htim1;
+extern TIM_HandleTypeDef htim2;
+extern TIM_HandleTypeDef htim3;
+extern TIM_HandleTypeDef htim5;
+extern TIM_HandleTypeDef htim8;
+extern TIM_HandleTypeDef htim9;
+extern TIM_HandleTypeDef htim12;
+extern UART_HandleTypeDef huart4;
+extern UART_HandleTypeDef huart5;
+extern UART_HandleTypeDef huart1;
+
+extern I2C_HandleTypeDef hi2c1;
+extern I2C_HandleTypeDef hi2c2;
 
 
-// ================= ÓÃ»§²ÎÊıÅäÖÃÇø =================
+extern osMutexId_t UART4mutex_id;      // äº’æ–¥é‡å¥æŸ„
+extern osMessageQueueId_t MotorQueueHandle;
+// ================= ç”¨æˆ·å‚æ•°é…ç½®åŒº(æ›´æ¢ç”µæœºæˆ–è€…ä¿®æ”¹é‡‡æ ·å‘¨æœŸéœ€è¦ä¿®æ”¹) =================
 
-// 1. µç»ú²ÎÊı (¸ù¾İÄãµÄÍ¼Æ¬)
-#define MOTOR_BASE_PPR        7     // »ô¶û´«¸ĞÆ÷»ù´¡Âö³åÊı (µç»úÎ²²¿×ªÒ»È¦µÄÎïÀíÂö³å)
-
-// 2. ¼õËÙ±È (!!·Ç³£ÖØÒª!!)
-// N20µç»úÍ¨³£¶¼ÓĞ¼õËÙÏä£¬±ÈÈç 1:30, 1:50, 1:100¡£
-// Í¼Æ¬ÖĞ²¢Ã»ÓĞĞ´¾ßÌå¼õËÙ±È£¬ÄãĞèÒª²é¿´ÄãµÄ¶©µ¥»òÕßÊıÒ»ÏÂ£º
-// Èç¹ûÄãÏëÒª¿ØÖÆµÄÊÇ¡¾¼õËÙºóµÄÊä³öÖá¡¿×ªËÙ£¬ÕâÀï±ØĞëÌî¼õËÙ±È(ÀıÈç 30)¡£
-// Èç¹ûÄãÖ»¹ØĞÄµç»úÎ²²¿×ªËÙ£¬ÕâÀïÌî 1¡£
+// 1. ç”µæœºå‚æ•° (æ ¹æ®ä½ çš„å›¾ç‰‡)
+#define MOTOR_BASE_PPR        7     // éœå°”ä¼ æ„Ÿå™¨åŸºç¡€è„‰å†²æ•° (ç”µæœºå°¾éƒ¨è½¬ä¸€åœˆçš„ç‰©ç†è„‰å†²)
+#define MAX_MOTOR_PWM_PULSE  13999  // ç”µæœºæ§åˆ¶çš„PWMæœ€å¤§å€¼
+// 2. å‡é€Ÿæ¯” (!!éå¸¸é‡è¦!!)
+// N20ç”µæœºé€šå¸¸éƒ½æœ‰å‡é€Ÿç®±ï¼Œæ¯”å¦‚ 1:30, 1:50, 1:100ã€‚
+// å›¾ç‰‡ä¸­å¹¶æ²¡æœ‰å†™å…·ä½“å‡é€Ÿæ¯”ï¼Œä½ éœ€è¦æŸ¥çœ‹ä½ çš„è®¢å•æˆ–è€…æ•°ä¸€ä¸‹ï¼š
+// å¦‚æœä½ æƒ³è¦æ§åˆ¶çš„æ˜¯ã€å‡é€Ÿåçš„è¾“å‡ºè½´ã€‘è½¬é€Ÿï¼Œè¿™é‡Œå¿…é¡»å¡«å‡é€Ÿæ¯”(ä¾‹å¦‚ 30)ã€‚
+// å¦‚æœä½ åªå…³å¿ƒç”µæœºå°¾éƒ¨è½¬é€Ÿï¼Œè¿™é‡Œå¡« 1ã€‚
 #define GEAR_RATIO            42.0f 
 
-// 3. ²ÉÑùÖÜÆÚ (ºÁÃë)
-// ÖÜÆÚÔ½¶ÌÏìÓ¦Ô½¿ì£¬µ«ËÙ¶ÈÖµÌø¶¯¿ÉÄÜ±ä´ó£»ÖÜÆÚÔ½³¤ËÙ¶ÈÔ½Æ½»¬£¬µ«ÓĞÑÓ³Ù¡£
-// 10ms - 50ms ÊÇ³£ÓÃ·¶Î§¡£
-//Ò»È¦×ÜÂö³å=»ù´¡Âö³å¡Á¶¨Ê±Æ÷±¶Æµ¡Á¼õËÙ±È
-//ÕâÀï²ÉÑùÖÜÆÚÒªºÏÀíÉèÖÃ,
+// 3. é‡‡æ ·å‘¨æœŸ (æ¯«ç§’)
+// å‘¨æœŸè¶ŠçŸ­å“åº”è¶Šå¿«ï¼Œä½†é€Ÿåº¦å€¼è·³åŠ¨å¯èƒ½å˜å¤§ï¼›å‘¨æœŸè¶Šé•¿é€Ÿåº¦è¶Šå¹³æ»‘ï¼Œä½†æœ‰å»¶è¿Ÿã€‚
+// 10ms - 50ms æ˜¯å¸¸ç”¨èŒƒå›´ã€‚
+//ä¸€åœˆæ€»è„‰å†²=åŸºç¡€è„‰å†²Ã—å®šæ—¶å™¨å€é¢‘Ã—å‡é€Ÿæ¯”
+//è¿™é‡Œé‡‡æ ·å‘¨æœŸè¦åˆç†è®¾ç½®,
 #define SPEED_SAMPLE_TIME_MS  20    
 
-// ================= ×Ô¶¯¼ÆËã³£Á¿ =================
+// ================= è‡ªåŠ¨è®¡ç®—å¸¸é‡ =================
 
-// ±àÂëÆ÷Ä£Ê½ TI1 and TI2 ´ú±í 4 ±¶Æµ
+// ç¼–ç å™¨æ¨¡å¼ TI1 and TI2 ä»£è¡¨ 4 å€é¢‘
 #define ENCODER_MULTIPLIER    4.0f
 
-// ¼õËÙºóµÄÊä³öÖá×ªÒ»È¦£¬¶¨Ê±Æ÷»á¼ÆÊıµÄ×ÜÊıÖµ
-// ¹«Ê½£º7 * 4 * 30 = 840 (¼ÙÉè¼õËÙ±È30)
+// å‡é€Ÿåçš„è¾“å‡ºè½´è½¬ä¸€åœˆï¼Œå®šæ—¶å™¨ä¼šè®¡æ•°çš„æ€»æ•°å€¼
+// å…¬å¼ï¼š7 * 4 * 30 = 840 (å‡è®¾å‡é€Ÿæ¯”30)
 #define PULSES_PER_REV_OUTPUT (MOTOR_BASE_PPR * ENCODER_MULTIPLIER * GEAR_RATIO)
 
-// ================= Êı¾İ½á¹¹¶¨Òå =================
+// ==================== æ•°æ®ç»“æ„å®šä¹‰ =================
 
+/* ç”µæœºçŠ¶æ€ */
 typedef struct {
 		uint8_t  dev;
-    float    speed_rpm;      // µ±Ç°×ªËÙ (RPM, ×ª/·ÖÖÓ)
-    int8_t   direction;      // µ±Ç°×ªÏò (1:Õı×ª, -1:·´×ª, 0:¾²Ö¹)
-    int16_t  encode_delta;   // ±¾´Î²ÉÑùÖÜÆÚÄÚµÄ¼ÆÊıÖµÔöÁ¿
-    int32_t  total_count;    // (¿ÉÑ¡) ÀÛ¼Æ×ÜÂö³åÊı£¬ÓÃÓÚ²â¾àÀë
-    uint16_t last_counter;   // ÉÏÒ»´Î¶ÁÈ¡µÄ TIM2->CNT Öµ
+    float    speed_rpm;      // å½“å‰è½¬é€Ÿ (RPM, è½¬/åˆ†é’Ÿ)
+    int8_t   direction;      // å½“å‰è½¬å‘ (1:æ­£è½¬, -1:åè½¬, 0:é™æ­¢)
+    int16_t  encode_delta;   // æœ¬æ¬¡é‡‡æ ·å‘¨æœŸå†…çš„è®¡æ•°å€¼å¢é‡
+    int32_t  total_count;    // (å¯é€‰) ç´¯è®¡æ€»è„‰å†²æ•°ï¼Œç”¨äºæµ‹è·ç¦»
+    uint16_t last_counter;   // ä¸Šä¸€æ¬¡è¯»å–çš„ TIM2->CNT å€¼
+		uint8_t IsStatusChanged; //æ•°æ®æ˜¯å¦æ”¹å˜
 } Motor_Status_t;
 
-// ÉùÃ÷È«¾Ö±äÁ¿¹©ÆäËûÎÄ¼şµ÷ÓÃ
-extern Motor_Status_t motor_n20;
+/* ç”µæœºPIDæ§åˆ¶å‚æ•° */
+typedef struct {
+    float Kp;           // æ¯”ä¾‹
+    float Ki;           // ç§¯åˆ†
+    float Kd;           // å¾®åˆ†
+    
+    float prevError;    // ä¸Šæ¬¡è¯¯å·®
+    float integral;     // ç§¯åˆ†ç´¯è®¡
+    
+    // ç”¨äºå¾®åˆ†é¡¹æ»¤æ³¢çš„å˜é‡
+    float prevDerivative;      // ä¸Šä¸€æ¬¡çš„å¾®åˆ†å€¼
+    float filteredDerivative;  // æ»¤æ³¢åçš„å¾®åˆ†å€¼
+} PID_Controller;
+
+
+
+
+
+
+//=======================å‡½æ•°===========================
+/* è®¾ç½®æŒ‡å®šç”µæœºçš„PWMå‚æ•° */ 
+extern void SetMotorPWM(uint8_t motor_id, int8_t direction, uint32_t pulse);
+
+/* å°†æ‰§è¡Œrpmè½¬æ¢ä¸ºpulse */
+extern uint32_t RpmToPulse(float rpm_value);
+
+/* åœæ­¢æŒ‡å®šç”µæœºçš„PWMè¾“å‡º */ 
+extern void StopMotorPWM(uint8_t motor_id);
 
 #endif
+
