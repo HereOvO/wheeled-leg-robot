@@ -454,6 +454,31 @@
               <FilePath>..\Core\Inc\jetson_uart.h</FilePath>
             </File>
             <File>
+              <FileName>app_freertos.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\app_freertos.c</FilePath>
+            </File>
+            <File>
+              <FileName>ClosedLoopControl.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\ClosedLoopControl.c</FilePath>
+            </File>
+            <File>
+              <FileName>Motor.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\Motor.c</FilePath>
+            </File>
+            <File>
+              <FileName>PID_Control.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\PID_Control.c</FilePath>
+            </File>
+            <File>
+              <FileName>uart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\uart.c</FilePath>
+            </File>
+            <File>
               <FileName>main.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/main.c</FilePath>
@@ -677,31 +702,6 @@
               <FileName>stm32f4xx_hal_timebase_tim.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/stm32f4xx_hal_timebase_tim.c</FilePath>
-            </File>
-            <File>
-              <FileName>app_freertos.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\app_freertos.c</FilePath>
-            </File>
-            <File>
-              <FileName>ClosedLoopControl.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\ClosedLoopControl.c</FilePath>
-            </File>
-            <File>
-              <FileName>Motor.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\Motor.c</FilePath>
-            </File>
-            <File>
-              <FileName>PID_Control.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\PID_Control.c</FilePath>
-            </File>
-            <File>
-              <FileName>uart.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\uart.c</FilePath>
             </File>
           </Files>
         </Group>

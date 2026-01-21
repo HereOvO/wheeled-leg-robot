@@ -14,10 +14,10 @@ Motor_Status_t motor2_n20 = { 2,0,0,0,0,0,0};
 Motor_Status_t motor3_n20 = { 3,0,0,0,0,0,0};
 
 /* 电机PID参数 */
-float PID_MotorArr0[3]={230,10,0.05};  // Kp=1.5, Ki=0.1, Kd=0.05 (提高Kp和Ki，加快响应)
-float PID_MotorArr1[3]={230,10,0.05};
-float PID_MotorArr2[3]={230,10,0.05};
-float PID_MotorArr3[3]={230,10,0.05};
+float PID_MotorArr0[3]={60,8,0.5};  // Kp=1.5, Ki=0.1, Kd=0.05 (提高Kp和Ki，加快响应)
+float PID_MotorArr1[3]={50,10,0.5};
+float PID_MotorArr2[3]={230,15,0.03};
+float PID_MotorArr3[3]={230,15,0.03};
 
 /* 全局电机状态数组 */ 
 Motor_Status_t all_motors[4] = {0};
@@ -101,26 +101,7 @@ void MotorCtrl_TasK(void *argument)
         int8_t cDir;
         uint32_t ulPulse;
     
-        // 设置 GPIO 方向
-        // 建议把这里的 GPIO 操作封装成一个函数，太长了
-//        GPIO_TypeDef* pPort1 = NULL; uint16_t Pin1 = 0;
-//        GPIO_TypeDef* pPort2 = NULL; uint16_t Pin2 = 0;
-//        
-//        switch(motor_id)
-//              {
-//                case 0: 
-//                    pPort1 = MotorDirectionControl_IO1_1_GPIO_Port; Pin1 = MotorDirectionControl_IO1_1_Pin;
-//                    pPort2 = MotorDirectionControl_IO1_2_GPIO_Port; Pin2 = MotorDirectionControl_IO1_2_Pin; break;
-//                case 1: 
-//                    pPort1 = MotorDirectionControl_IO2_1_GPIO_Port; Pin1 = MotorDirectionControl_IO2_1_Pin;
-//                    pPort2 = MotorDirectionControl_IO2_2_GPIO_Port; Pin2 = MotorDirectionControl_IO2_2_Pin; break;
-//                case 2: 
-//                    pPort1 = MotorDirectionControl_IO3_1_GPIO_Port; Pin1 = MotorDirectionControl_IO3_1_Pin;
-//                    pPort2 = MotorDirectionControl_IO3_2_GPIO_Port; Pin2 = MotorDirectionControl_IO3_2_Pin; break;
-//                case 3: 
-//                    pPort1 = MotorDirectionControl_IO4_1_GPIO_Port; Pin1 = MotorDirectionControl_IO4_1_Pin;
-//                    pPort2 = MotorDirectionControl_IO4_2_GPIO_Port; Pin2 = MotorDirectionControl_IO4_2_Pin; break;
-//            }
+
             while(1)
             {
                 /* 读取闭环控制的结果 */
@@ -130,6 +111,7 @@ void MotorCtrl_TasK(void *argument)
                    ulPulse=Motor_Control_Pulse[motor_id];
                 
                    osMutexRelease(MotorPIDOutPulseMutexHandle);
+                
                 
                 /* 输出PWM */
                switch(motor_id)
@@ -238,7 +220,9 @@ void MotorCtrl_TasK(void *argument)
 void MotorSpeedTask(void *argument)
 {
 	
-        extern void UpdateSingleMotorData(uint8_t motor_id, int8_t direction, float speed_rpm);
+
+    
+       // extern void UpdateSingleMotorData(uint8_t motor_id, int8_t direction, float speed_rpm);
         /* USER CODE BEGIN MotorSpeedTask */
         /* Infinite loop */
 
@@ -268,11 +252,23 @@ void MotorSpeedTask(void *argument)
             // 根据Motor_id选择对应的TIM
             uint16_t current_cnt = __HAL_TIM_GET_COUNTER(tim_handles[Motor_id]);
         
+
+        
             // ================= B. 核心解算 =================
             
             // 1. 计算增量 (Delta)
              delta = (int16_t)(current_cnt - motor_n20.last_counter);
 						
+                        //调试输出
+//               if(Motor_id==3)
+//               {
+//                taskENTER_CRITICAL() ;
+//                UART_SendInt16_WithLabel(&huart1,"last_counter", motor_n20.last_counter);
+//                UART_SendInt16_WithLabel(&huart1,"current_cnt",current_cnt);
+//                UART_SendInt16_WithLabel(&huart1,"delta",delta);
+//                taskEXIT_CRITICAL();
+//               }
+               
             //更新必要的字段
             // 更新状态结构体
             motor_n20.encode_delta = delta;
@@ -293,7 +289,7 @@ void MotorSpeedTask(void *argument)
 
                 
                     // 3. 判断方向 (添加防抖动处理)
-                    const int16_t DIRECTION_THRESHOLD = 2; // 方向判断阈值，防止小幅度抖动
+                    const int16_t DIRECTION_THRESHOLD = 0; // 方向判断阈值，防止小幅度抖动
                     if (delta > DIRECTION_THRESHOLD) {
                             motor_n20.direction = 1;
                             cnt++;
@@ -304,24 +300,36 @@ void MotorSpeedTask(void *argument)
                             cnt = 0; // 重置计数器
                             HAL_GPIO_WritePin(DebugIO_GPIO_Port,DebugIO_Pin,GPIO_PIN_RESET);
                     }
-                    else {
-                            // 如果变化很小，保持原方向（除非速度接近0）
-                            if (fabsf(motor_n20.speed_rpm) < 1.0f) {
-                                    motor_n20.direction = 0; // 低速时可以改变方向
-                                    cnt = 0; // 重置计数器
-                                    HAL_GPIO_WritePin(DebugIO_GPIO_Port,DebugIO_Pin,GPIO_PIN_RESET);
-                            }
+                    else if(delta==0){
+//                            // 如果变化很小，保持原方向（除非速度接近0）
+//                            if (fabsf(motor_n20.speed_rpm) < 1.0f) {
+//                                    motor_n20.direction = 0; // 低速时可以改变方向
+//                                    cnt = 0; // 重置计数器
+//                                    HAL_GPIO_WritePin(DebugIO_GPIO_Port,DebugIO_Pin,GPIO_PIN_RESET);
+//                            }
                             // 否则保持原方向以防止抖动
+                        motor_n20.direction = 0;
                     }
 
-                    
+
                     
                     // 更新电机数据到综合姿态信息 根据当前任务的设备ID来确定更新哪个电机的数据,只更新转动方向和速度
                     // 使用带符号速度更新（正转为正，反转为负）
-                    float signed_speed = motor_n20.speed_rpm;									
+                    float signed_speed = motor_n20.speed_rpm;		
+
+//                    if(Motor_id==3)//调试输出pass
+//                    {
+//                       taskENTER_CRITICAL() ;
+//                       UART_SendInt16_WithLabel(&huart1,"direction", motor_n20.direction);
+//                       //UART_SendInt16_WithLabel(&huart1,"signed_speed",signed_speed );
+//                       taskEXIT_CRITICAL();  
+//                    
+//                    }
+                     
                     UpdateSingleMotorDataWithSignedSpeed(motor_n20.dev, signed_speed);
                 }
            
+                
 			//更新全局电机状态数组
             osMutexAcquire(MotorStatusMutexHandle,portMAX_DELAY);               
             all_motors[motor_n20.dev] = motor_n20;
@@ -334,4 +342,6 @@ void MotorSpeedTask(void *argument)
 
   /* USER CODE END MotorSpeedTask */
 }
+
+
 

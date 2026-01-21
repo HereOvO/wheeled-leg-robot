@@ -110,19 +110,19 @@ int main(void)
   MX_TIM5_Init();
   MX_TIM9_Init();
   MX_TIM12_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 	//SEGGER_SYSVIEW_Conf();
-    HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);  // Æô¶¯TIM1±àÂëÆ÷
-    HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);  // Æô¶¯TIM2±àÂëÆ÷
-    HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);  // Æô¶¯TIM3±àÂëÆ÷
-    HAL_TIM_Encoder_Start(&htim8, TIM_CHANNEL_ALL);  // Æô¶¯TIM8±àÂëÆ÷
+    HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);  // ï¿½ï¿½ï¿½ï¿½TIM1ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+    HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);  // ï¿½ï¿½ï¿½ï¿½TIM2ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+    HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);  // ï¿½ï¿½ï¿½ï¿½TIM3ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+    HAL_TIM_Encoder_Start(&htim8, TIM_CHANNEL_ALL);  // ï¿½ï¿½ï¿½ï¿½TIM8ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
   /* USER CODE END 2 */
 
   /* Init scheduler */
   osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
   MX_FREERTOS_Init();
 
-   
   /* Start scheduler */
   osKernelStart();
 

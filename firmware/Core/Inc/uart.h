@@ -1,6 +1,8 @@
 #ifndef __UART_H__
 #define __UART_H__
 
+
+
 //=================include===========================
 #include "Motor.h"
 #include "main.h"
@@ -38,6 +40,7 @@ extern I2C_HandleTypeDef hi2c2;
 /* UARTÈÎÎñº¯Êý */ 
 extern void UART4_Task(void *argument);
 
-
+HAL_StatusTypeDef UART1_SendUint16_Text(UART_HandleTypeDef* uarthandle,uint16_t data);
+HAL_StatusTypeDef UART_SendFloat_WithLabel_Manual(UART_HandleTypeDef* uarthandle, const char* label, float data);
 
 #endif

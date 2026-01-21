@@ -63,7 +63,7 @@ extern uint8_t Motor_1;
 extern uint8_t Motor_2;
 extern uint8_t Motor_3;
 
-//Õë¶Ô²»Í¬µÄ¶¨Ê±Æ÷½øÐÐÊä³öÏÞ·ù
+//ï¿½ï¿½Ô²ï¿½Í¬ï¿½Ä¶ï¿½Ê±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Þ·ï¿½
 //uint16_t ulMaxPulse_TIM5_12=MAX_MOTOR_PWM_PULSE_5_12;
 //uint16_t ulMaxPulse_TIM9=MAX_MOTOR_PWM_PULSE_9;
 

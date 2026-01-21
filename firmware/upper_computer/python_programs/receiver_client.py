@@ -118,38 +118,63 @@ class DataReceiver:
 
     def display_parsed_data(self, parsed_data):
         """显示解析后的数据"""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}")
         print(f"消息类型: {parsed_data['type']}")
-        
+
         if parsed_data['type'] == 'POSE':
             print("姿态数据:")
             print(f"  舵机角度: {parsed_data['servo_angles']}")
             print(f"  时间戳: {parsed_data['timestamp']}")
-            print(f"  IMU数据: 加速度({parsed_data['imu_data']['accel_x']:.2f}, {parsed_data['imu_data']['accel_y']:.2f}, {parsed_data['imu_data']['accel_z']:.2f}), "
-                  f"陀螺仪({parsed_data['imu_data']['gyro_x']:.2f}, {parsed_data['imu_data']['gyro_y']:.2f}, {parsed_data['imu_data']['gyro_z']:.2f}), "
+            print(f"  IMU数据: 加速度({parsed_data['imu_data']['accel_x']:.2f}, "
+                  f"{parsed_data['imu_data']['accel_y']:.2f}, {parsed_data['imu_data']['accel_z']:.2f}), "
+                  f"陀螺仪({parsed_data['imu_data']['gyro_x']:.2f}, "
+                  f"{parsed_data['imu_data']['gyro_y']:.2f}, {parsed_data['imu_data']['gyro_z']:.2f}), "
                   f"温度: {parsed_data['imu_data']['temperature']:.2f}°C")
-            print(f"  电机数据: 方向{parsed_data['motor_data']['directions']}, 转速{parsed_data['motor_data']['speeds']}")
-        elif parsed_data['type'] == 'HEARTBEAT':
-            print("  心跳包 - 设备在线")
-        elif parsed_data['type'] == 'ACK':
-            print(f"  确认消息 - ID: {parsed_data['msg_id']}")
-        elif parsed_data['type'] == 'ERROR':
-            print(f"  错误消息 - 代码: {parsed_data['error_code']}, 内容: {parsed_data['error_msg']}")
-        elif parsed_data['type'] == 'SERVO_CONTROL':
-            print(f"  舵机控制 - ID: {parsed_data['servo_id']}, 角度: {parsed_data['angle']}, 持续时间: {parsed_data['duration']}ms")
+
+            # 电机数据显示改进
+            print("  电机数据:")
+            if 'motor_data' in parsed_data and 'directions' in parsed_data['motor_data']:
+                directions = parsed_data['motor_data']['directions']
+                speeds = parsed_data['motor_data']['speeds']
+                for i, (direction, speed) in enumerate(zip(directions, speeds)):
+                    if direction == -1:
+                        dir_str = "反转"
+                    elif direction == 1:
+                        dir_str = "正转"
+                    else:
+                        dir_str = "停止"
+                    print(f"    电机{i}: {dir_str}, 转速: {speed:.1f} RPM")
+
         elif parsed_data['type'] == 'MOTOR_CONTROL':
             signed_speed = parsed_data['signed_speed_rpm']
-            if signed_speed > 0:
-                direction_info = f"正转({signed_speed} RPM)"
-            elif signed_speed < 0:
-                direction_info = f"反转({abs(signed_speed)} RPM)"
+            direction = parsed_data.get('direction', None)
+
+            # 优先使用direction字段（如果有）
+            if direction is not None:
+                if direction == -1:
+                    direction_str = "反转"
+                elif direction == 1:
+                    direction_str = "正转"
+                else:
+                    direction_str = "停止"
             else:
-                direction_info = "停止(0.0 RPM)"
-            print(f"  电机控制 - ID: {parsed_data['motor_id']}, 状态: {direction_info}")
-        else:
-            print(f"  原始数据: {parsed_data.get('raw_data', 'N/A')}")
-        print("="*60)
+                # 根据signed_speed判断方向
+                if signed_speed < 0:
+                    direction_str = "反转"
+                    speed_display = abs(signed_speed)
+                elif signed_speed > 0:
+                    direction_str = "正转"
+                    speed_display = signed_speed
+                else:
+                    direction_str = "停止"
+                    speed_display = 0
+
+            print(f"  电机控制 - ID: {parsed_data['motor_id']}, "
+                  f"方向: {direction_str}, 转速: {speed_display:.1f} RPM")
+
+        # ... 其他类型保持不变
+        print("=" * 60)
 
     def start_receiving(self):
         """开始接收数据"""

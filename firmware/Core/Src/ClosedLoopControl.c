@@ -2,6 +2,7 @@
 #include "ClosedLoopControl.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "uart.h"
 #include "math.h" // 用于fabs函数
 
 //==================== extern PV ======================
@@ -135,11 +136,21 @@ void Motor_PID_TaskFunc(void *pvParameters)
             // --- C. 计算当前实际速度 (带符号) ---
             // all_motors[i].direction 可能是 0, 1, -1 (停止, 正转, 反转)
             osMutexAcquire(MotorStatusMutexHandle,portMAX_DELAY);
-            actual_speed_signed = all_motors[i].speed_rpm * (float)all_motors[i].direction;
+            actual_speed_signed = all_motors[i].speed_rpm;
             osMutexRelease(MotorStatusMutexHandle);
             // --- D. 计算误差 ---
             error = target_speed_signed - actual_speed_signed;
-
+            
+           if(i==0)   //调试输出
+                {
+                    taskENTER_CRITICAL() ;
+                    //UART_SendInt16_WithLabel(&huart1,"Motor_Control_Dir", cDir);
+                    UART_SendFloat_WithLabel_Manual(&huart1,"erro", error );
+                    UART_SendFloat_WithLabel_Manual(&huart1,"speed_rpm", all_motors[i].speed_rpm );
+                    UART_SendFloat_WithLabel_Manual(&huart1,"actual_speed_signed", actual_speed_signed);
+                    taskEXIT_CRITICAL();
+                }
+            
             // --- E. PID 计算 ---
             
             // 1. 比例项

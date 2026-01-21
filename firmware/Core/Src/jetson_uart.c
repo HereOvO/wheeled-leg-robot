@@ -30,6 +30,7 @@
 #include <motor.h>
 #include "cmsis_os.h"  // 添加FreeRTOS头文件以使用互斥锁
 #include <stm32f4xx_hal_gpio.h>
+#include <uart.h>
 /* USER CODE END Includes */
 
 /*extern PV*/
@@ -434,6 +435,12 @@ HAL_StatusTypeDef SendCurrentPose(void)
             comprehensive_pose.motor_data.speed_rpm[0], comprehensive_pose.motor_data.speed_rpm[1],
             comprehensive_pose.motor_data.speed_rpm[2], comprehensive_pose.motor_data.speed_rpm[3]);
 
+
+
+//           UART_SendInt16_WithLabel(&huart1,".direction", comprehensive_pose.motor_data.direction[3]);
+//           UART_SendInt16_WithLabel(&huart1,"speed_rpm",comprehensive_pose.motor_data.speed_rpm[3] );
+   
+
     //出临界区
      taskEXIT_CRITICAL();
 
@@ -604,6 +611,10 @@ void UpdateMotorDataWithSignedSpeed(float signed_rpm1, float signed_rpm2, float 
         dir3 = 0;
         rpm3 = 0.0f;
     }
+    
+  
+
+
 
     // 处理第四个电机
     int8_t dir4 = 0;
@@ -619,6 +630,12 @@ void UpdateMotorDataWithSignedSpeed(float signed_rpm1, float signed_rpm2, float 
         rpm4 = 0.0f;
     }
 
+
+//    if(dir4>0)//调试输出false
+//    {
+//        UART_SendInt16_WithLabel(&huart1,"inside_direction", dir4);
+//    }
+    
     // 一次性更新所有电机数据
     //进入临界区
     taskENTER_CRITICAL();
@@ -661,6 +678,9 @@ void UpdateSingleMotorData(uint8_t motor_id, int8_t direction, float speed_rpm)
 void UpdateSingleMotorDataWithSignedSpeed(uint8_t motor_id, float signed_speed_rpm)
 {
 
+      
+
+
 
     if(motor_id < 4) {
         int8_t direction = 0;
@@ -681,6 +701,12 @@ void UpdateSingleMotorDataWithSignedSpeed(uint8_t motor_id, float signed_speed_r
         comprehensive_pose.motor_data.direction[motor_id] = direction;
         comprehensive_pose.motor_data.speed_rpm[motor_id] = abs_speed;
 
+//    if(motor_id==3)//调试输出pass
+//    {
+//        UART_SendInt16_WithLabel(&huart1,"direction", direction);
+//        UART_SendInt16_WithLabel(&huart1,"abs_speed",abs_speed );
+//    }
+            
         comprehensive_pose.motor_data.timestamp = HAL_GetTick();
         comprehensive_pose.timestamp = HAL_GetTick(); // 更新整体时间戳
         
@@ -966,11 +992,21 @@ void Jetson_Task(void *argument)
     float signed_speed_2 = all_motors[2].speed_rpm;
     float signed_speed_3 = all_motors[3].speed_rpm;
 
-    if(all_motors[0].direction == -1) signed_speed_0 = -signed_speed_0;
-    if(all_motors[1].direction == -1) signed_speed_1 = -signed_speed_1;
-    if(all_motors[2].direction == -1) signed_speed_2 = -signed_speed_2;
-    if(all_motors[3].direction == -1) signed_speed_3 = -signed_speed_3;
+    
+//    UART_SendInt16_WithLabel(&huart1,"before_direction", all_motors[3].direction );
+//    UART_SendFloat_WithLabel_Manual(&huart1,"before_speed",  all_motors[3].speed_rpm);
+    
+//    if(all_motors[0].direction == -1) signed_speed_0 = -signed_speed_0;//多处理了一步
+//    if(all_motors[1].direction == -1) signed_speed_1 = -signed_speed_1;
+//    if(all_motors[2].direction == -1) signed_speed_2 = -signed_speed_2;
+//    if(all_motors[3].direction == -1) signed_speed_3 = -signed_speed_3;
     osMutexRelease(MotorStatusMutexHandle);
+    
+    //调试false
+    //UART_SendInt16_WithLabel(&huart1,"before_direction", signed_speed_3);
+    // UART_SendFloat_WithLabel_Manual(&huart1,"after_speed", signed_speed_3);
+
+    
     UpdateMotorDataWithSignedSpeed(signed_speed_0, signed_speed_1, signed_speed_2, signed_speed_3);
 
     osDelay(10);
