@@ -33,7 +33,7 @@
 #include "FreeRTOS.h"
 #include "queue.h"
 #include <string.h>
-//#include "SEGGER_SYSVIEW.h"
+#include "SEGGER_SYSVIEW.h"
 
 /* USER CODE END Includes */
 
@@ -44,7 +44,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+ 
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -112,11 +112,12 @@ int main(void)
   MX_TIM12_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-	//SEGGER_SYSVIEW_Conf();
-    HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);  // ����TIM1������
-    HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);  // ����TIM2������
-    HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);  // ����TIM3������
-    HAL_TIM_Encoder_Start(&htim8, TIM_CHANNEL_ALL);  // ����TIM8������
+	SEGGER_SYSVIEW_Conf();
+    
+    HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);  
+    HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);  
+    HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);  
+    HAL_TIM_Encoder_Start(&htim8, TIM_CHANNEL_ALL);  
   /* USER CODE END 2 */
 
   /* Init scheduler */

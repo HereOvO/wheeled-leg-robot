@@ -36,10 +36,10 @@ extern osMutexId_t MotorPIDOutPulseMutexHandle;
 // 外部定义的变量 (控制指令与PID参数)
 extern int8_t  motor_cmd_direction[4]; // +1, -1, 0
 extern float   motor_cmd_speed[4];     // 正数 float
-extern float   PID_MotorArr0[3];       // P, I, D for Motor 0
-extern float   PID_MotorArr1[3];
-extern float   PID_MotorArr2[3];
-extern float   PID_MotorArr3[3];
+extern float   PIDFF_MotorParaArr0[5];       // P, I, D for Motor 0
+extern float   PIDFF_MotorParaArr1[5];
+extern float   PIDFF_MotorParaArr2[5];
+extern float   PIDFF_MotorParaArr3[5];
 
 // 输出控制数组
 extern uint32_t Motor_Control_Pulse[4]; // PWM脉冲值
@@ -76,10 +76,10 @@ static PID_Internal_State_t pid_states[4] = {0};
 */  
 void Motor_PID_TaskFunc(void *pvParameters)
 {
-    
-    
     // 1. 准备PID参数指针数组，方便循环调用
-    float *pid_params_list[4] = {PID_MotorArr0, PID_MotorArr1, PID_MotorArr2, PID_MotorArr3};
+    // 数组定义：[0]:Kp, [1]:Ki, [2]:Kd, [3]:Kv(速度前馈), [4]:K_static(死区/摩擦补偿)
+    float *pid_params_list[4] = {PIDFF_MotorParaArr0, PIDFF_MotorParaArr1,
+                                 PIDFF_MotorParaArr2, PIDFF_MotorParaArr3};
     
     // 2. FreeRTOS 时间控制变量
     TickType_t xLastWakeTime;
@@ -96,31 +96,33 @@ void Motor_PID_TaskFunc(void *pvParameters)
     float actual_speed_signed;
     float error;
     float p_term, i_term, d_term, output_signed;
-    float kp, ki, kd;
+    float kp, ki, kd, kv, k_static; // 新增 kv, k_static
+    float ff_velocity, ff_static;   // 新增 前馈变量
     
     // 积分限幅值 (防止积分项单独过大导致响应迟滞)
     static float max_integral_val; 
     static uint8_t TIM;
+
     for(;;)
     {
         for(int i = 0; i < 4; i++)
         {
-            TIM=motor_pwm_tim_map[i];
-            if(TIM==9)
+            TIM = motor_pwm_tim_map[i];
+            if(TIM == 9)
             {
-                max_integral_val=MAX_MOTOR_PWM_PULSE_9;
+                max_integral_val = MAX_MOTOR_PWM_PULSE_9;
             }
-            else if(TIM==5 || TIM==12)
+            else if(TIM == 5 || TIM == 12)
             {
-                max_integral_val=MAX_MOTOR_PWM_PULSE_5_12;
+                max_integral_val = MAX_MOTOR_PWM_PULSE_5_12;
             }
             
             // --- A. 获取参数 ---
             kp = pid_params_list[i][0];
             ki = pid_params_list[i][1];
             kd = pid_params_list[i][2];
-            
-            
+            kv = pid_params_list[i][3];       // 第4个元素：速度前馈系数
+            k_static = pid_params_list[i][4]; // 第5个元素：静态摩擦补偿(死区)
             
             // --- B. 检查并计算目标速度 (带符号) ---
             // 结合方向和速度：正转为正值，反转为负值
@@ -134,22 +136,12 @@ void Motor_PID_TaskFunc(void *pvParameters)
             
             
             // --- C. 计算当前实际速度 (带符号) ---
-            // all_motors[i].direction 可能是 0, 1, -1 (停止, 正转, 反转)
-            osMutexAcquire(MotorStatusMutexHandle,portMAX_DELAY);
+            osMutexAcquire(MotorStatusMutexHandle, portMAX_DELAY);
             actual_speed_signed = all_motors[i].speed_rpm;
             osMutexRelease(MotorStatusMutexHandle);
+            
             // --- D. 计算误差 ---
             error = target_speed_signed - actual_speed_signed;
-            
-           if(i==0)   //调试输出
-                {
-                    taskENTER_CRITICAL() ;
-                    //UART_SendInt16_WithLabel(&huart1,"Motor_Control_Dir", cDir);
-                    UART_SendFloat_WithLabel_Manual(&huart1,"erro", error );
-                    UART_SendFloat_WithLabel_Manual(&huart1,"speed_rpm", all_motors[i].speed_rpm );
-                    UART_SendFloat_WithLabel_Manual(&huart1,"actual_speed_signed", actual_speed_signed);
-                    taskEXIT_CRITICAL();
-                }
             
             // --- E. PID 计算 ---
             
@@ -177,16 +169,20 @@ void Motor_PID_TaskFunc(void *pvParameters)
             d_term = kd * (error - pid_states[i].prev_error) / dt;
             pid_states[i].prev_error = error; // 更新上一次误差
 
-            // 4. 总输出 (纯PID计算值)
-            output_signed = p_term + i_term + d_term;
-
-            // --- E2. 【新增】死区电压补偿 (Dead Zone Compensation) ---
-            // 目的：让PWM值跳过电机静摩擦区间
-            if (output_signed > 0.001f) {
-                output_signed += (float)MOTOR_DEAD_ZONE_PULSE;
-            } else if (output_signed < -0.001f) {
-                output_signed -= (float)MOTOR_DEAD_ZONE_PULSE;
+            // --- E1. 【新增】前馈计算 (Feed-Forward) ---
+            // 1. 速度前馈: 目标速度 * Kv (预判需要的PWM)
+            ff_velocity = target_speed_signed * kv;
+            
+            // 2. 静态摩擦补偿(死区): 只要有目标速度，就给基础电压
+            ff_static = 0.0f;
+            if (target_speed_signed > 0.001f) {
+                ff_static = k_static;
+            } else if (target_speed_signed < -0.001f) {
+                ff_static = -k_static;
             }
+
+            // 4. 总输出 = PID闭环修正 + 前馈开环预估
+            output_signed = p_term + i_term + d_term + ff_velocity + ff_static;
 
             // --- F. 输出限幅与赋值 ---
             
@@ -209,7 +205,7 @@ void Motor_PID_TaskFunc(void *pvParameters)
             }
 
             // --- G. 写入控制数组 ---
-            osMutexAcquire(MotorPIDOutPulseMutexHandle,portMAX_DELAY);
+            osMutexAcquire(MotorPIDOutPulseMutexHandle, portMAX_DELAY);
             Motor_Control_Dir[i]   = out_dir;
             Motor_Control_Pulse[i] = (uint32_t)output_abs;
             osMutexRelease(MotorPIDOutPulseMutexHandle);

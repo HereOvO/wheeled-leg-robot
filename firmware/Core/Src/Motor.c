@@ -14,10 +14,10 @@ Motor_Status_t motor2_n20 = { 2,0,0,0,0,0,0};
 Motor_Status_t motor3_n20 = { 3,0,0,0,0,0,0};
 
 /* 电机PID参数 */
-float PID_MotorArr0[3]={60,8,0.5};  // Kp=1.5, Ki=0.1, Kd=0.05 (提高Kp和Ki，加快响应)
-float PID_MotorArr1[3]={50,10,0.5};
-float PID_MotorArr2[3]={230,15,0.03};
-float PID_MotorArr3[3]={230,15,0.03};
+float PIDFF_MotorParaArr0[5]={60,8,0.5,13999.0/381,100};  // Kp=1.5, Ki=0.1, Kd=0.05,K_v(满PWM/满RPM),Dead_ZonePWM
+float PIDFF_MotorParaArr1[5]={50,10,0.5,13999.0/381,100};
+float PIDFF_MotorParaArr2[5]={230,15,0.03,13999.0/381,100};
+float PIDFF_MotorParaArr3[5]={230,15,0.03,65535.0/381,100};
 
 /* 全局电机状态数组 */ 
 Motor_Status_t all_motors[4] = {0};
